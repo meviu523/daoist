@@ -9,6 +9,7 @@
     get paused(){return this.reasons.size>0;}
     pause(reason='manual'){if(!this.reasons.has(reason)){this.reasons.add(reason);this.last=null;}}
     release(reason){if(this.reasons.delete(reason))this.last=null;}
+    reset(){this.last=null;}
     setSpeed(speed){if(![1,3,10].includes(speed))throw new Error('无效时间倍率。');this.speed=speed;this.last=null;}
     frame(timestamp){
       if(!Number.isFinite(timestamp)||this.paused){this.last=null;return;}

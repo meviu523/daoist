@@ -68,7 +68,8 @@
     renderTrail(){
       if(!this.s)return;let trail='';
       const a=this.s.activity;
-      let route=this.selected?G.routeFrom(this.s,this.selected):a?.phase==='travel'?a.route:this.s.lastRoute;
+      // 已完成路线只保留在状态中用于存档/记录，不继续画在地图上。
+      let route=this.selected?G.routeFrom(this.s,this.selected):a?.phase==='travel'?a.route:null;
       if(!this.selected&&a?.phase==='travel'){
         let length=0;const points=[G.playerPoint(this.s)];
         for(let i=1;i<a.route.points.length;i++){
