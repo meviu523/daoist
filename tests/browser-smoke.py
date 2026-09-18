@@ -112,6 +112,12 @@ with sync_playwright() as p:
     assert page.locator('.player-name').inner_text() == '云行'
     assert '外卖修仙录' not in page.locator('#game-header').inner_text()
     assert page.locator('.player-marker').count() == 1
+    page.locator('.game-nav [data-panel="cultivation"]').click()
+    assert '凡人一重' in page.locator('#panel').inner_text()
+    assert '无药鼎' in page.locator('#panel').inner_text()
+    assert page.locator('[data-act="alchemy"]').first.is_disabled()
+    page.click('[data-ui="close"]')
+    record('修行面板显示九重小境界，未购鼎时禁止开炉')
     page.screenshot(path=str(OUT/'game-desktop.png'))
     pump(page, 1200)
     assert abs(current(page)['minutes']-481.2) < 1e-5
@@ -289,6 +295,27 @@ with sync_playwright() as p:
         assert not merrors, merrors
         record(f'{width}px 手机视口：时间控制、行动栏、导航、面板无溢出或运行异常')
         ctx.close()
+
+    ctx, alchemy, alchemy_errors = setup(browser, 1100, 850)
+    new_game(alchemy, '丹客')
+    alchemy.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.position='market';s.location=null;s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));}''')
+    alchemy.click('[data-ui="home"]')
+    alchemy.locator('[data-ui="load"]').first.click()
+    alchemy.locator('.game-nav [data-panel="cultivation"]').click()
+    assert '长乐集' in alchemy.locator('#panel').inner_text()
+    alchemy.click('[data-act="cauldron"]')
+    assert stored(alchemy)['alchemy']['cauldron'] == 1
+    assert '青铜药鼎' in alchemy.locator('#panel').inner_text()
+    alchemy.click('[data-act="alchemy"][data-recipe="heal"]')
+    toggle(alchemy)
+    alchemy.select_option('#time-speed', '10')
+    pump(alchemy, 2500)
+    brewed = stored(alchemy)
+    assert brewed['alchemy']['brews'] == 1
+    assert brewed['alchemy']['xp'] >= 1
+    record('长乐集购买药鼎后可炼药，完成一炉会积累炼药熟练度')
+    assert not alchemy_errors, alchemy_errors
+    ctx.close()
 
     ctx, ai, aerrors = setup(browser, 1200, 900, ai=True)
     new_game(ai, '听雨', 'ai')
