@@ -248,7 +248,7 @@ with sync_playwright() as p:
     ctx, craft, cerrors = setup(browser, 1200, 900)
     new_game(craft, '药童')
     craft.click('[data-ui="home"]')
-    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.position='market';s.location=null;s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));}''')
+    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.position='market';s.location=null;s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
     craft.locator('[data-ui="load"]').first.click()
     craft.locator('.game-nav [data-panel="cultivation"]').click()
     assert '尚未购鼎' in craft.locator('#panel').inner_text()
