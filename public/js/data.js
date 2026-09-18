@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 3;
+  G.VERSION = 4;
   G.TITLE = '外卖修仙录';
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570];
   G.GRID_Y = [120, 300, 480, 660, 840, 1020];
@@ -24,6 +24,20 @@
     if (!G.PLACES.some(p => p.x === x && p.y === y)) G.PLACES.push({ id: `stop-${n}`, name: names[n++], x, y, kind: 'delivery', permanent: false });
   }
   G.place = id => G.PLACES.find(p => p.id === id);
+  G.RESIDENCES = [
+    { id:'qiyun', name:'栖云宿舍', place:'stop-3', rent:70, desc:'合租床位便宜，但只能恢复基础体力与少量气血、灵力。', recovery:{health:20,stamina:70,mana:10,battery:0}, full:[] },
+    { id:'qingteng', name:'青藤小屋', place:'home', rent:120, desc:'最初的住处。休息均衡，能补满体力、灵力与电量。', recovery:{health:45,stamina:0,mana:0,battery:0}, full:['stamina','mana','battery'] },
+    { id:'songfeng', name:'松风公寓', place:'stop-1', rent:220, desc:'安静宽敞，睡眠后气血、体力、灵力与电量全部恢复。', recovery:{health:0,stamina:0,mana:0,battery:0}, full:['health','stamina','mana','battery'] }
+  ];
+  G.residence = id => G.RESIDENCES.find(r => r.id === id);
+  for (const residence of G.RESIDENCES) {
+    const place = G.place(residence.place);
+    if (place) {
+      place.permanent = true;
+      place.kind = 'home';
+      place.desc = residence.desc;
+    }
+  }
   G.REALMS = [
     { name: '凡人', need: 80 }, { name: '炼气', need: 180 }, { name: '筑基', need: 380 },
     { name: '金丹', need: 700 }, { name: '元婴', need: 1100 }, { name: '化神', need: 0 }

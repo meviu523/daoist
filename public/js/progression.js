@@ -151,9 +151,9 @@
     };
   }
 
-  const storyActions = new Set(['deliver','choose','travel','rest','sleep','cultivate','breakthrough','explore','visit','heal','meal','alchemy']);
+  const storyActions = new Set(['deliver','choose','travel','moveHome','rest','sleep','cultivate','breakthrough','explore','visit','heal','meal','alchemy']);
   function injectStoryEvent(s) {
-    if (s.pending || s.ending) return;
+    if (s.gameOver || s.pending || s.ending) return;
     const next = storyEvents.find(e => !s.flags[e.flag] && e.ready(s));
     if (!next) return;
     s.flags[next.flag] = true;

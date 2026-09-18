@@ -30,7 +30,7 @@ engine.perform(旧状态, 行动, 参数)
 
 `engine.js` 的基础 `G.perform(original, action, payload)` 先复制状态；`must()` 不通过时返回原状态，避免时间已扣而电量不足等部分写入。`progression.js` 在不改动基础结算公式的前提下包裹 `G.perform`，只负责系统解锁校验与“行动成功后是否触发关键主线”的判定。界面不负责改余额、位置或境界，只提交行动。
 
-支持的行动包括旅行、配送、选择事件、修炼、突破、炼丹、探索、拜访、歇息、睡眠、交通方式切换、充电、修车、升级、兑换、服用物品、签到、领取委托和选择/继续结局。精确名称与参数以 `engine.js` 的 switch 为准。
+支持的行动包括旅行、配送、选择事件、修炼、突破、炼丹、探索、拜访、歇息、睡眠、搬家、交通方式切换、充电、修车、升级、兑换、服用物品、签到、领取委托和选择/继续结局。`gameOver` 一旦存在，规则层拒绝后续行动。精确名称与参数以 `engine.js` 的 switch 为准。
 
 凡是移动均使用 `move()`，其先调用 `travelPlan()` 和 `travelBlock()`，校验后才扣除体力/电池、增加行程、推进时间和改变位置。一般世界行动结束后刷新订单；兑换等系统事务不制造新的免费刷单回合。
 
@@ -40,7 +40,7 @@ engine.perform(旧状态, 行动, 参数)
 
 基础骑行速度 22km/h，每个速度升级 +4km/h；车况低于20时乘0.7。步行速度由身法与轻身术影响。天气的速度倍率应用于两者。
 
-出行消耗和活动本身消耗分开：睡觉是回家行程加480分钟，NPC拜访是行程加20分钟；原地修炼有其固定时长；充电可在任意地点直接进行，固定30分钟且不附加行程；维修与升级仍要求位于修车铺；系统兑换是0分钟。日志时间由游戏分钟数生成，不用浏览器墙钟推进游戏。
+出行消耗和活动本身消耗分开：睡觉是返回当前住处的行程加480分钟，NPC拜访是行程加20分钟；原地修炼有其固定时长；充电可在任意地点直接进行，固定30分钟且不附加行程；维修与升级仍要求位于修车铺；系统兑换是0分钟。搬家也通过统一 `move()` 计算道路距离、体力和电量。每跨入第 7、14、21… 日，按当前住处扣除完整周租；现金不足时写入 `gameOver` 并立即结束本局。日志时间由游戏分钟数生成，不用浏览器墙钟推进游戏。
 
 `seed` 是存档的一部分。游戏事件和奖励使用状态内 xorshift 随机数；同种子、同动作得到相同分支演化，便于回归测试。ID与创建时间不属于随机事件种子。
 
@@ -66,7 +66,7 @@ engine.perform(旧状态, 行动, 参数)
 {
   schemaVersion: 3,
   id, name, mode, createdAt, updatedAt, seed,
-  turn, minutes, position, transport, weather,
+  turn, minutes, position, residenceId, gameOver, transport, weather,
   player: { money, coins, health, stamina, mana, qi, realm,
             insight, constitution, agility, luck, karma, rep },
   vehicle: { battery, durability, levels: { speed, battery, durability } },
@@ -77,9 +77,9 @@ engine.perform(旧状态, 行动, 参数)
 }
 ```
 
-存储键：`night-courier:saves:v3`；上一写入备份键：`night-courier:saves:backup`。列表最多12份；每份日志最多180条，防止无界增长。
+存储键：`night-courier:saves:v4`；旧键 `night-courier:saves:v3` 在首次读取时迁移；上一写入备份键：`night-courier:saves:backup`。列表最多12份；每份日志最多180条，防止无界增长。
 
-`sanitizeSave()` 不把任意原始对象合并进状态，按字段白名单重建，规范数值范围，并校验人物进度、事件模板及待结算票据。v1/v2只有识别到的重建字段迁移，不对未知原游戏做猜测。
+`sanitizeSave()` 不把任意原始对象合并进状态，按字段白名单重建，规范数值范围，并校验人物进度、住处、破产结束状态、事件模板及待结算票据。v1/v2/v3 只有识别到的重建字段迁移，不对未知原游戏做猜测。
 
 导入解析最大2MB，整个批次先验证再写入；重新生成ID避免覆盖。主记录损坏时尝试读取上一写入备份，保留原损坏文本并提示，而非静默用空数组覆盖。写失败则设置dirty，后续返回菜单仍保留内存进度，直到导出或成功写入。
 
