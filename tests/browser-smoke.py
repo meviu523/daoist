@@ -239,6 +239,28 @@ with sync_playwright() as p:
     record('桌面流程无 JavaScript 运行时异常')
     ctx.close()
 
+    ctx, craft, cerrors = setup(browser, 1200, 900)
+    new_game(craft, '药童')
+    craft.click('[data-ui="home"]')
+    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.position='market';s.location=null;s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));}''')
+    craft.locator('[data-ui="load"]').first.click()
+    craft.locator('.game-nav [data-panel="cultivation"]').click()
+    assert '尚未购鼎' in craft.locator('#panel').inner_text()
+    assert craft.locator('[data-act="cauldron"]').is_enabled()
+    craft.click('[data-act="cauldron"]')
+    assert stored(craft)['alchemy']['cauldron'] == 1
+    assert stored(craft)['player']['money'] == 840
+    assert craft.locator('[data-act="alchemy"][data-recipe="heal"]').is_enabled()
+    assert not craft.locator('[data-act="alchemy"][data-recipe="qi"]').is_enabled()
+    craft.click('[data-act="alchemy"][data-recipe="heal"]')
+    pump(craft, 21000)
+    brewed = current(craft)
+    assert brewed['alchemy']['brews'] == 1 and brewed['alchemy']['xp'] >= 1
+    assert brewed['inventory']['herb'] == 9
+    record('炼药师界面可在长乐集购鼎，开炉消耗材料并积累熟练度')
+    assert not cerrors, cerrors
+    ctx.close()
+
     for width, height in [(390, 844), (320, 740)]:
         ctx, mobile, merrors = setup(browser, width, height)
         new_game(mobile, '行舟')
