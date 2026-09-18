@@ -116,6 +116,13 @@ with sync_playwright() as p:
     page.click('[data-ui="close"]')
     record('修行面板显示九重小境界，未购鼎时禁止开炉')
     page.screenshot(path=str(OUT/'game-desktop.png'))
+    assert page.evaluate('NightCourier.PLACES.length') == 110
+    assert page.locator('.map-point').count() <= 15
+    assert page.evaluate("document.querySelector('.base-layer').textContent.includes('南岸新街')")
+    page.evaluate('window.__map.fit()')
+    page.screenshot(path=str(OUT/'expanded-map-desktop.png'))
+    page.evaluate('window.__map.center()')
+    record('110 地点扩展地图已绘制，新配送点保持动态显示')
     pump(page, 1200)
     assert abs(current(page)['minutes']-481.2) < 1e-5
     assert current(page)['position'] == 'home'
@@ -210,17 +217,29 @@ with sync_playwright() as p:
         assert abs(current(page)['minutes']-old-speed) < 1e-5
     record('面板自动暂停并恢复先前状态，1/3/10 倍率推进完整模拟')
 
-    # Visibility is deliberately simulated, not a physical mobile OS suspend.
+    # Visibility/pagehide are simulated; this is not a physical OS freeze.
     page.select_option('#time-speed', '1')
-    page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));}''')
+    page.evaluate("()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));}")
     old = stored(page)['minutes']
-    page.evaluate('window.__now+=100000;window.__wall+=100000')
-    assert current(page)['minutes'] == old
-    page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));}''')
-    assert page.locator('[data-ui="pause"]').inner_text() == '暂停'
+    pump(page, 3000)
+    assert abs(current(page)['minutes']-old-3) < 1e-5
+    page.evaluate("()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));}")
     pump(page, 2000)
-    assert abs(current(page)['minutes']-old-2) < 1e-5
-    record('页面隐藏不新增暂停，返回后按原状态继续且不补算离开时间')
+    assert abs(current(page)['minutes']-old-5) < 1e-5
+    assert page.locator('[data-ui="pause"]').inner_text() == '暂停'
+    page.evaluate("window.dispatchEvent(new Event('pagehide'));window.dispatchEvent(new Event('pageshow'))")
+    pump(page, 1000)
+    assert abs(current(page)['minutes']-old-6) < 1e-5
+    record('隐藏/返回与 pagehide/pageshow 不自动暂停，同一会话持续计时')
+    toggle(page)
+    old = current(page)['minutes']
+    page.evaluate("()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));}")
+    pump(page, 3000)
+    page.evaluate("()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));}")
+    pump(page, 1000)
+    assert current(page)['minutes'] == old
+    assert page.locator('[data-ui="pause"]').inner_text() == '继续'
+    record('主动暂停后切后台再返回仍保持暂停')
 
     page.click('[data-ui="home"]')
     new_game(page, '青禾', 'ai')
@@ -281,13 +300,17 @@ with sync_playwright() as p:
         assert bounds['x'] >= viewport['x'] and bounds['x']+bounds['width'] <= viewport['x']+viewport['width']+.5
         assert bounds['y'] >= viewport['y'] and bounds['y']+bounds['height'] <= viewport['y']+viewport['height']+.5
         assert mobile.locator('.bridge-rails').count() == 4
-        assert mobile.locator('.district-label').all_text_contents() == ['云港新区','东湖新城','南郊生活区','灵溪山麓']
+        assert mobile.locator('.district-label').all_text_contents() == ['云港新区','东湖新城','南郊生活区','灵溪山麓','南岸新街']
         mobile.screenshot(path=str(OUT/f'map-overview-{width}.png'))
         before_position = current(mobile)['position']
         mobile.click('[data-ui="locate"]')
         assert current(mobile)['position'] == before_position
         record(f'{width}px 全城视图完整容纳新路网，定位及缩放不改变人物位置')
         assert mobile.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        mobile.evaluate('window.__map.fit()')
+        assert mobile.evaluate('''()=>{const m=window.__map;return m.tx>=0&&m.ty>=0&&m.tx+NightCourier.WORLD.width*m.scale<=m.el.clientWidth+.5&&m.ty+NightCourier.WORLD.height*m.scale<=m.el.clientHeight+.5;}''')
+        mobile.screenshot(path=str(OUT/f'expanded-map-{width}.png'))
+        mobile.evaluate('window.__map.center()')
         for selector in ['#game-nav', '#action-bar', '.time-controls']:
             box = mobile.locator(selector).bounding_box()
             assert box['x'] >= 0 and box['x']+box['width'] <= width+.5
@@ -313,7 +336,7 @@ with sync_playwright() as p:
 
     ctx, expanded, xerrors = setup(browser)
     new_game(expanded, '新城骑手')
-    assert expanded.evaluate('NightCourier.PLACES.length') == 99
+    assert expanded.evaluate('NightCourier.PLACES.length') == 110
     assert expanded.evaluate('document.querySelector(".road-network").getAttribute("d")===NightCourier.ROAD_EDGES.map(({from,to})=>{const a=NightCourier.ROAD_NODES[from],b=NightCourier.ROAD_NODES[to];return `M${a.x} ${a.y}L${b.x} ${b.y}`;}).join("")')
     expanded.screenshot(path=str(OUT/'map-overview-1440.png'))
     vehicle = current(expanded)['vehicle']; vehicle['battery'] = 0
@@ -416,10 +439,27 @@ with sync_playwright() as p:
     assert not rerrors, rerrors
     record('真实 requestAnimationFrame：空闲流逝、移动与暂停实测')
     ctx.close()
+    # Disable foreground rendering after startup: only the real background
+    # interval can advance. Hidden status is simulated, timers are not mocked.
+    ctx, bg, bgerrors = setup(browser, 1024, 800, controlled=False)
+    new_game(bg, '后台时钟')
+    bg.evaluate("()=>{window.requestAnimationFrame=()=>0;Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));}")
+    bg.wait_for_timeout(200)
+    at = current(bg)['minutes']
+    bg.wait_for_timeout(2400)
+    assert current(bg)['minutes'] >= at+1.5
+    assert bg.locator('#game-screen').get_attribute('data-paused') == 'false'
+    bg.locator('[data-ui="pause"]').evaluate('(button)=>button.click()')
+    at = stored(bg)['minutes']
+    bg.wait_for_timeout(1200)
+    assert current(bg)['minutes'] == at
+    assert not bgerrors, bgerrors
+    record('真实后台定时器：无动画回调仍推进，手动暂停仍生效')
+    ctx.close()
     browser.close()
 
 (OUT/'browser-tests.json').write_text(json.dumps({
-    'mode':'offline Chromium bundle; controlled GameClock timestamps plus real-rAF probe; mocked storage and AI',
+    'mode':'offline Chromium bundle; controlled GameClock timestamps plus real-rAF and background-heartbeat probes; mocked storage and AI',
     'tests':results, 'passed':len(results), 'failed':0,
 }, ensure_ascii=False, indent=2))
 print(f'{len(results)} browser checks passed.')
