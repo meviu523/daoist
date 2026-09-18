@@ -28,7 +28,7 @@
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
       inventory: {qi:1,heal:1,stamina:1,mana:0,herb:0,fragment:0,charm:0,foundation:0}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
-      bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
+      bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
       daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], ending: null,
       flags: {firstOrder:false}, recentEvents: [], pending: null, orders: [], logs: [], lastRoute: null
     };
@@ -151,6 +151,7 @@
       if (!pool.length) pool=G.EVENTS.filter(e=>e.kind===kind && e.id!=='first-order');
       base=pool[int(s,0,pool.length-1)];
     }
+    if(base.encounterNpc&&s.bonds[base.encounterNpc]&&!s.bonds[base.encounterNpc].met){s.bonds[base.encounterNpc].met=true;const npc=G.NPCS.find(n=>n.id===base.encounterNpc);if(npc)G.log(s,`你在一段意外的相逢中结识了${npc.name}。从现在起，可以在「羁绊」中找到对方。`,'相逢');}
     s.recentEvents=[...s.recentEvents,base.id].slice(-4);
     s.pending={...clone(base),id:`event-${s.turn}-${s.seed}`,templateId:base.id,source:'classic',aiStatus:s.mode==='ai' && base.id!=='first-order'?'unrequested':'skip',...overrides};
   }
@@ -158,7 +159,7 @@
     const late=s.minutes>ticket.expiresAt, reward=Math.floor(ticket.reward*(late?.7:1)), coins=late?Math.max(1,Math.floor(ticket.coins*.5)):ticket.coins;
     s.player.money+=reward;s.player.coins+=coins;s.stats.earned+=reward;s.stats.delivered++;s.daily.delivered++;
     s.player.rep=clamp(s.player.rep+(late?-1:1),-50,100);
-    if(ticket.npc){s.bonds[ticket.npc].affinity=clamp(s.bonds[ticket.npc].affinity+3,0,100);}
+    if(ticket.npc){const bond=s.bonds[ticket.npc];const npc=G.NPCS.find(n=>n.id===ticket.npc);if(!bond.met){bond.met=true;if(npc)G.log(s,`这一单让你第一次正式结识${npc.name}。对方已出现在「羁绊」中。`,'相逢');}bond.affinity=clamp(bond.affinity+3,0,100);}
     G.log(s, `送达「${ticket.title}」至${G.place(ticket.target).name}。现金 +¥${reward}，外卖币 +${coins}${late?'；已超时，报酬下调。':'。'}`, '配送');
   }
   G.breakChance = (s, usePill=false) => clamp(53+s.player.insight*2+Math.max(0,s.player.karma)*.12+(G.isNight(s)?10:0)+(usePill?15:0)-s.player.realm*3,35,95);
@@ -241,7 +242,7 @@
           must(['park','temple'].includes(s.position),'请先前往月渡公园或听雨观探索。');must(s.player.stamina>=12,'探索需要 12 点体力。');s.player.stamina-=12;passTime(s,30);s.stats.explored++;if(G.rand(s)<Math.min(.45,.05+s.player.luck*.01)){s.inventory.herb=(s.inventory.herb||0)+1;G.log(s,'机缘眷顾：探索时额外发现青灵草 ×1。','机缘');}event(s,'explore');G.log(s,`在${G.place(s.position).name}探索了半小时，遇见一段未曾听说的故事。`,'探索');break;
         }
         case 'visit': {
-          const npc=G.NPCS.find(n=>n.id===payload.id);must(npc,'人物不存在。');const bond=s.bonds[npc.id];must(bond.lastTalkDay!==G.day(s),'今天已经深入交谈过了，明天再来吧。');move(s,npc.place);passTime(s,20);bond.lastTalkDay=G.day(s);
+          const npc=G.NPCS.find(n=>n.id===payload.id);must(npc,'人物不存在。');const bond=s.bonds[npc.id];must(bond.met,'你还没有在旅途中结识这个人。');must(bond.lastTalkDay!==G.day(s),'今天已经深入交谈过了，明天再来吧。');move(s,npc.place);passTime(s,20);bond.lastTalkDay=G.day(s);
           const stage=bond.stage,threshold=[0,10,24,40][stage],advanced=stage<4&&bond.affinity>=threshold;
           if(advanced){const [title,text,...choices]=npc.arc[stage];s.pending={id:`npc-${s.turn}-${s.seed}`,kind:'social',title,text,choices:clone(choices),npcId:npc.id,npcAdvance:true,source:'classic',aiStatus:'skip'};}
           else{s.pending={id:`npc-talk-${s.turn}-${s.seed}`,kind:'social',title:`与${npc.name}的片刻`,text:stage>=4?'你们说起最近的生活。有些关系走到后来，最珍贵的恰是这些不必特别发生的日常。':`${npc.name}问你今天过得怎么样。再多一点陪伴，也许你们就能谈起更深的往事。`,choices:[{label:'分享今天见到的小事',result:'你们聊得很开心。',effects:{affinity:5,trust:2}},{label:'认真听对方说话',result:'被倾听的感觉，让你们更亲近了一些。',effects:{affinity:4,trust:3}},{label:'带一份热饭一起吃',result:'两个人分一份热饭，也分担了一些疲惫。',effects:{money:-12,affinity:7,stamina:8}}],npcId:npc.id,npcAdvance:false,source:'classic',aiStatus:s.mode==='ai'?'unrequested':'skip'};}
