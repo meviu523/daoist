@@ -264,7 +264,7 @@
           else{const q=G.QUESTS.find(q=>q.id===payload.id);must(q,'委托不存在。');must(!s.claimed.includes(q.id),'奖励已经领取。');must(G.questReady(s,q),'委托条件尚未达成。');s.claimed.push(q.id);effects(s,q.reward);G.log(s,`「${q.title}」：${q.story} 奖励：${G.effectText(q.reward)}。`,'主线');}break;
         }
         case 'charge': {
-          must(['home','garage'].includes(s.position),'请先前往小屋或修车铺充电；没有电时可步行推车。');const cap=G.limits(s);must(s.vehicle.battery<cap.battery-.01,'电量已满。');effects(s,{money:-8});passTime(s,30);s.vehicle.battery=cap.battery;G.log(s,'充电 30 分钟，现金 -¥8，电量补满。','电动车');break;
+          const cap=G.limits(s);must(s.vehicle.battery<cap.battery-.01,'电量已满。');effects(s,{money:-8});passTime(s,30);s.vehicle.battery=cap.battery;G.log(s,'充电 30 分钟，现金 -¥8，电量补满。','电动车');break;
         }
         case 'repair': {
           must(s.position==='garage','请先前往修车铺维修。');const cap=G.limits(s);must(s.vehicle.durability<cap.durability-.01,'车况完好，无需维修。');const cost=Math.ceil((cap.durability-s.vehicle.durability)*.6)+12;effects(s,{money:-cost});passTime(s,30);s.vehicle.durability=cap.durability;G.log(s,`维修 30 分钟，现金 -¥${cost}，车况恢复。`,'电动车');break;
