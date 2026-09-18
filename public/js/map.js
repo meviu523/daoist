@@ -33,7 +33,6 @@
           const cols=['#2a4240','#2d4542','#30473f','#263f40'],bw=(w-15)/2,bh=(hh-15)/2;
           for(let j=0;j<4;j++){const bx=x+(j%2)*(bw+15),by=y+Math.floor(j/2)*(bh+15);h+=`<rect x="${bx+3}" y="${by+4}" width="${bw}" height="${bh}" rx="5" fill="#0e2425" opacity=".4"/><rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="5" fill="${cols[(r+c+j)%4]}" stroke="#789084" stroke-opacity=".15"/><path d="M${bx+12} ${by+Math.max(13,bh*.3)}H${bx+bw-12}M${bx+12} ${by+Math.max(26,bh*.62)}H${bx+bw-12}" stroke="#8ba397" stroke-opacity=".1" stroke-width="2"/>`;}}
         }
-      }
       const tree=(x,y,r)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="#375441" stroke="#587562" stroke-opacity=".3"/>`;
       for(let i=0;i<46;i++)h+=tree(65+(i*239)%(worldW-120),55+(i*277)%(worldH-110),5+i%4);
       h+='<g fill="#a9bbad" font-family="system-ui, sans-serif" font-size="17" letter-spacing="7" opacity=".42"><text x="198" y="245">旧 城 里</text><text x="652" y="440">长 乐 坊</text><text x="1260" y="425">临 江 新 城</text><text x="180" y="968">南 市</text><text x="1220" y="915">月 渡</text><text x="1680" y="300">东 港</text><text x="1640" y="1110">云 栖 新 区</text><text x="370" y="1325">南 渡</text></g>';
