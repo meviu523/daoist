@@ -2,8 +2,9 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v4';
-  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v3';
+  G.STORAGE_KEY = 'night-courier:saves:v5';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v4';
+  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v3'];
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -15,19 +16,102 @@
     if(!obj(raw)||!G.place(raw.target))throw new Error('订单地点无效。');
     return {id:cleanId(raw.id),target:raw.target,title:str(raw.title,'热饭配送',60),desc:str(raw.desc,'请及时送达。',300),
       condition:['ordinary','careful','urgent','night','mystic'].includes(raw.condition)?raw.condition:'ordinary',
-      expiresAt:num(raw.expiresAt,s.minutes+20,0,1e8),reward:num(raw.reward,20,0,1000),coins:num(raw.coins,2,0,20),
+      expiresAt:num(raw.expiresAt,s.minutes+20,0,1e8,false),reward:num(raw.reward,20,0,1000),coins:num(raw.coins,2,0,20),
       npc:G.NPCS.some(n=>n.id===raw.npc)?raw.npc:null};
   }
+  function cleanPending(p,s){
+    if(!obj(p))throw new Error('待处理事件已损坏。');
+      let base;
+      const npc=G.NPCS.find(n=>n.id===p.npcId);
+      if(npc)s.bonds[npc.id].met=true;
+      if(npc&&p.npcAdvance===true){const arc=npc.arc[s.bonds[npc.id].stage];if(!arc)throw new Error('人物故事进度与事件不一致。');const [title,text,...choices]=arc;base={title,text,choices:G.clone(choices),kind:'social'};}
+      else if(npc){base={title:`与${npc.name}的片刻`,text:'你们继续谈起各自的近况。',choices:[{label:'分享近况',result:'你们的距离又近了一些。',effects:{affinity:5,trust:2}},{label:'认真倾听',result:'你记住了对方在意的小事。',effects:{affinity:4,trust:3}},{label:'请对方吃饭',result:'一顿热饭，让夜晚柔软了许多。',effects:{money:-12,affinity:7,stamina:8}}],kind:'social'};}
+      else {base=G.EVENTS.find(e=>e.id===p.templateId);if(!base)throw new Error('无法识别待处理事件，请使用备份恢复。');base=G.clone(base);}
+      let clean={...base,id:cleanId(p.id),templateId:base.id||p.templateId,source:'classic',aiStatus:['unrequested','fallback','skip'].includes(p.aiStatus)?p.aiStatus:'skip',npcId:npc?.id||null,npcAdvance:!!npc&&p.npcAdvance===true};
+      if(p.source==='ai'){const ai=G.validateAIEvent(p);Object.assign(clean,ai,{source:'ai',aiStatus:'success'});}
+      if(p.delivery)clean.delivery=cleanTicket(p.delivery,s);
+      if(s.mode==='classic')clean.aiStatus='skip';
+    return clean;
+  }
+
+  function cleanActivity(raw,s){
+    const kinds=['travel','deliver','moveHome','sleep','visit','rest','cultivate','breakthrough','alchemy','explore','charge','repair','upgrade','heal','meal','choice','rescue'];
+    if(!obj(raw)||!kinds.includes(raw.kind)||!['travel','work'].includes(raw.phase))throw new Error('进行中的行动格式无效。');
+    const kind=raw.kind,p=obj(raw.params)?raw.params:{},params={};
+    let duration=({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:30,repair:30,upgrade:45,heal:30,meal:20,rescue:180})[kind]||0;
+    if(['moveHome','sleep'].includes(kind)){
+      if(!G.residence(p.id))throw new Error('行动中的住处无效。');params.id=p.id;
+    }
+    if(kind==='visit'){
+      if(!G.NPCS.some(n=>n.id===p.id)||!s.bonds[p.id]?.met)throw new Error('拜访对象未结识或无效。');params.id=p.id;
+    }
+    if(kind==='cultivate'){
+      if(!['breath','meditate','body'].includes(p.kind))throw new Error('修炼方式无效。');params.kind=p.kind;duration=p.kind==='meditate'?90:p.kind==='body'?30:45;
+    }
+    if(kind==='alchemy'){
+      if(!['heal','qi'].includes(p.recipe))throw new Error('丹方无效。');params.recipe=p.recipe;duration=p.recipe==='heal'?20:25;
+    }
+    if(kind==='upgrade'){
+      if(!['speed','battery','durability'].includes(p.kind)||s.vehicle.levels[p.kind]>=5)throw new Error('升级行动无效。');params.kind=p.kind;
+    }
+    if(kind==='breakthrough'){
+      if(p.realm!==s.player.realm||!G.REALMS[p.realm]?.need)throw new Error('突破境界与存档不一致。');
+      params.realm=p.realm;params.chance=num(p.chance,53,35,95,false);
+    }
+    if(kind==='choice'){
+      params.event=cleanPending(p.event,s);
+      if(!Number.isInteger(p.index)||!params.event.choices[p.index])throw new Error('正在执行的事件选项无效。');
+      params.index=p.index;duration=params.event.choices[p.index].duration||0;params.duration=duration;
+      if(!duration)throw new Error('即时选项不应保存为持续行动。');
+      if(params.event.delivery&&s.activeOrder)throw new Error('存档包含重复待结算订单。');
+    }
+    let target=null;
+    if(['travel','deliver','moveHome','sleep','visit','rescue'].includes(kind)){
+      target=kind==='deliver'?s.activeOrder?.target:kind==='rescue'?'clinic':['sleep','moveHome'].includes(kind)?G.residence(params.id).place:kind==='visit'?G.NPCS.find(n=>n.id===params.id).place:raw.target;
+      if(!G.place(target)||target!==raw.target)throw new Error('行动目的地与存档不一致。');
+    }
+    const a={kind,params,target,phase:raw.phase,duration,elapsed:num(raw.elapsed,0,0,duration,false),startedAt:num(raw.startedAt,s.minutes,0,s.minutes,false),route:null,travelled:0,recovery:{},gainedQi:num(raw.gainedQi,0,0,999999,false)};
+    if(raw.route){
+      if(!target||!Array.isArray(raw.route.points)||!G.roadAnchors(raw.route.points[0]).length)throw new Error('进行中的道路路线无效。');
+      a.route=G.route(raw.route.points[0],target);a.travelled=num(raw.travelled,0,0,a.route.meters,false);
+    }
+    if(a.phase==='travel'){
+      if(!a.route||a.route.meters<=0)throw new Error('移动行动缺少有效路线。');
+      const expected=G.pointOnRoute(a.route,a.travelled),actual=G.playerPoint(s);
+      if(Math.hypot(expected.x-actual.x,expected.y-actual.y)>1e-5)throw new Error('角色位置与道路行程不一致。');
+    }else if(target&&s.position!==target)throw new Error('尚未到达地点，不能执行当地行动。');
+    if(a.phase==='work'){
+      if(['repair','upgrade'].includes(kind)&&s.position!=='garage')throw new Error('维修升级必须位于修车铺。');
+      if(kind==='heal'&&s.position!=='clinic')throw new Error('治疗必须位于医馆。');
+      if(kind==='meal'&&s.position!=='market')throw new Error('用餐必须位于长乐集。');
+      if(kind==='explore'&&!['park','temple'].includes(s.position))throw new Error('探索地点无效。');
+    }
+    const cap=G.limits(s);
+    // Recovery is a bounded snapshot from the start of the work phase, not an
+    // arbitrary effects object. In particular it cannot award money/items/realm.
+    for(const key of ['health','stamina','mana','battery','durability']){
+      if(obj(raw.recovery)&&Object.hasOwn(raw.recovery,key))a.recovery[key]=num(raw.recovery[key],0,0,cap[key],false);
+    }
+    return a;
+  }
+
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3,4].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4,5].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
     s.id=cleanId(raw.id);s.createdAt=num(raw.createdAt,Date.now(),0,1e15);s.updatedAt=num(raw.updatedAt,Date.now(),0,1e15);
-    s.minutes=num(raw.minutes,480,0,1e8);s.turn=num(raw.turn,0,0,1e8);s.seed=num(raw.seed,1,1,4294967295);
-    s.position=G.place(raw.position)?raw.position:'home';s.transport=raw.transport==='walk'?'walk':'bike';
+    s.minutes=num(raw.minutes,480,0,1e8,false);s.turn=num(raw.turn,0,0,1e8);s.seed=num(raw.seed,1,1,4294967295);
+    s.position=G.place(raw.position)?raw.position:'home';
+    if(version>=5 && raw.position===null){
+      if(!G.roadAnchors(raw.location).length)throw new Error('途中位置不在有效道路上。');
+      s.position=null;s.location={x:raw.location.x,y:raw.location.y};
+    }
+    s.revision=num(raw.revision,0,0,1e12);
+    s.orderRefreshAt=num(raw.orderRefreshAt,(Math.floor(s.minutes/15)+1)*15,s.minutes,s.minutes+15,false);
+    s.transport=raw.transport==='walk'?'walk':'bike';
     s.residenceId=G.residence(raw.residenceId)?.id||'qingteng';
     if(obj(raw.gameOver)&&raw.gameOver.reason==='rent'){
       const home=G.residence(raw.gameOver.residenceId)||G.residence(s.residenceId);
@@ -37,16 +121,16 @@
     s.learned=Array.isArray(raw.learned)?[...new Set(raw.learned.filter(id=>G.ITEMS.some(i=>i.id===id&&i.type==='technique')))]:[];
     s.equipment=Array.isArray(raw.equipment)?[...new Set(raw.equipment.filter(id=>G.ITEMS.some(i=>i.id===id&&i.type==='equipment')))]:[];
     s.player.realm=num(raw.player.realm,0,0,G.REALMS.length-1);
-    for(const k of ['money','coins','qi'])s.player[k]=num(raw.player[k],s.player[k],0,k==='money'?9999999:999999);
+    for(const k of ['money','coins','qi'])s.player[k]=num(raw.player[k],s.player[k],0,k==='money'?9999999:999999,k!=='qi');
     for(const k of ['insight','constitution','agility','luck'])s.player[k]=num(raw.player[k],5,1,99);
     for(const k of ['rep','karma'])s.player[k]=num(raw.player[k],0,-50,100);
     const v=obj(raw.vehicle)?raw.vehicle:{},levels=obj(v.levels)?v.levels:{};
     for(const k of ['speed','battery','durability'])s.vehicle.levels[k]=num(levels[k],0,0,5);
     const cap=G.limits(s);
-    for(const k of ['health','stamina','mana'])s.player[k]=num(raw.player[k],cap[k],0,cap[k]);
+    for(const k of ['health','stamina','mana'])s.player[k]=num(raw.player[k],cap[k],0,cap[k],false);
     s.vehicle.battery=num(v.battery,cap.battery,0,cap.battery,false);s.vehicle.durability=num(v.durability,cap.durability,0,cap.durability,false);
     for(const item of G.ITEMS.filter(i=>!i.unique))s.inventory[item.id]=num(raw.inventory?.[item.id],0,0,9999);
-    for(const k of Object.keys(s.stats))s.stats[k]=num(raw.stats?.[k],0,0,k==='distance'?1e10:1e7);
+    for(const k of Object.keys(s.stats))s.stats[k]=num(raw.stats?.[k],0,0,k==='distance'?1e10:1e7,k!=='distance');
     for(const npc of G.NPCS){const b=raw.bonds?.[npc.id];if(obj(b)){const affinity=num(b.affinity,0,0,100),trust=num(b.trust,0,0,100),stage=num(b.stage,0,0,4),path=['friend','romance'].includes(b.path)&& (b.path!=='romance'||npc.romantic)?b.path:'none';s.bonds[npc.id]={met:b.met===true||affinity>0||trust>0||stage>0||path!=='none',affinity,trust,stage,path,lastTalkDay:num(b.lastTalkDay,0,0,G.day(s))};}}
     const d=obj(raw.daily)?raw.daily:{},day=G.day(s);
     s.daily={day,delivered:d.day===day?num(d.delivered,0):0,claimed:d.day===day&&d.claimed===true,signedDay:num(d.signedDay,0,0,day),streak:num(d.streak,0,0,day)};
@@ -54,28 +138,22 @@
     s.flags={firstOrder:raw.flags?.firstOrder===true};s.recentEvents=Array.isArray(raw.recentEvents)?raw.recentEvents.filter(id=>G.EVENTS.some(e=>e.id===id)).slice(-4):[];
     s.unlockedEndings=Array.isArray(raw.unlockedEndings)?[...new Set(raw.unlockedEndings.filter(id=>Object.hasOwn(G.ENDINGS,id)))]:[];
     s.ending=typeof raw.ending==='string'&&Object.hasOwn(G.ENDINGS,raw.ending)?raw.ending:null;
-    s.logs=Array.isArray(raw.logs)?raw.logs.filter(obj).slice(-180).map((l,i)=>({id:`restored-${s.turn}-${i}`,at:num(l.at,s.minutes,0,s.minutes),tag:str(l.tag,'日常',12),text:str(l.text,'',600)})):s.logs;
+    s.logs=Array.isArray(raw.logs)?raw.logs.filter(obj).slice(-180).map((l,i)=>({id:`restored-${s.turn}-${i}`,at:num(l.at,s.minutes,0,s.minutes,false),tag:str(l.tag,'日常',12),text:str(l.text,'',600)})):s.logs;
     s.orders=[];
     if(Array.isArray(raw.orders))for(const t of raw.orders.slice(0,6)){try {const clean=cleanTicket(t,s);if(!s.orders.some(o=>o.id===clean.id||o.target===clean.target))s.orders.push(clean);}catch{}}
-    if(!s.orders.length)G.refreshOrders(s);
+    if(!s.orders.length&&version<5)G.refreshOrders(s);
     s.lastRoute=null;
     if(obj(raw.lastRoute)&&G.place(raw.lastRoute.from)&&G.place(raw.lastRoute.to))s.lastRoute=G.route(raw.lastRoute.from,raw.lastRoute.to);
-    s.pending=null;
-    if(raw.pending){
-      const p=raw.pending;if(!obj(p))throw new Error('待处理事件已损坏。');
-      let base;
-      const npc=G.NPCS.find(n=>n.id===p.npcId);
-      if(npc)s.bonds[npc.id].met=true;
-      if(npc&&p.npcAdvance===true){const arc=npc.arc[s.bonds[npc.id].stage];if(!arc)throw new Error('人物故事进度与事件不一致。');const [title,text,...choices]=arc;base={title,text,choices:G.clone(choices),kind:'social'};}
-      else if(npc){base={title:`与${npc.name}的片刻`,text:'你们继续谈起各自的近况。',choices:[{label:'分享近况',result:'你们的距离又近了一些。',effects:{affinity:5,trust:2}},{label:'认真倾听',result:'你记住了对方在意的小事。',effects:{affinity:4,trust:3}},{label:'请对方吃饭',result:'一顿热饭，让夜晚柔软了许多。',effects:{money:-12,affinity:7,stamina:8}}],kind:'social'};}
-      else {base=G.EVENTS.find(e=>e.id===p.templateId);if(!base)throw new Error('无法识别待处理事件，请使用备份恢复。');base=G.clone(base);}
-      s.pending={...base,id:cleanId(p.id),templateId:base.id||p.templateId,source:'classic',aiStatus:['unrequested','fallback','skip'].includes(p.aiStatus)?p.aiStatus:'skip',npcId:npc?.id||null,npcAdvance:!!npc&&p.npcAdvance===true};
-      if(p.source==='ai'){const clean=G.validateAIEvent(p);Object.assign(s.pending,clean,{source:'ai',aiStatus:'success'});}
-      if(p.delivery)s.pending.delivery=cleanTicket(p.delivery,s);
-      if(s.mode==='classic')s.pending.aiStatus='skip';
+    s.pending=raw.pending?cleanPending(raw.pending,s):null;
+    s.activeOrder=version>=5&&raw.activeOrder?cleanTicket(raw.activeOrder,s):null;
+    if(s.activeOrder){
+      if(s.pending?.delivery)throw new Error('存档包含重复待结算订单。');
+      s.orders=s.orders.filter(o=>o.id!==s.activeOrder.id&&o.target!==s.activeOrder.target);
     }
+    s.activity=version>=5&&raw.activity?cleanActivity(raw.activity,s):null;
+    if(s.pending&&s.activity)throw new Error('待选事件与进行中行动不能同时存在。');
     s.schemaVersion=G.VERSION;
-    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}，角色、电动车与既有进度已保留；旧档默认住在青藤小屋。`,'存档');
+    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}，角色、电动车与既有进度已保留；途中状态与既有住处保留。`,'存档');
     return s;
   };
   G.parseImport = text => {
@@ -94,10 +172,11 @@
       if(!storage){warning='浏览器不允许本地存储。当前进度只保留在本页，请及时导出存档。';return cache;}
       try{
         cache=readKey(G.STORAGE_KEY);
-        if(!cache.length&&storage.getItem(G.LEGACY_STORAGE_KEY)){
-          cache=readKey(G.LEGACY_STORAGE_KEY);
+        const legacy=G.LEGACY_STORAGE_KEYS.find(k=>storage.getItem(k));
+        if(storage.getItem(G.STORAGE_KEY)===null&&legacy){
+          cache=readKey(legacy);
           const migrated=persist(cache);
-          if(migrated.ok)warning='已将本机 v3 存档升级到 v4：新增住处与房租规则，原有存档默认住青藤小屋。';
+          if(migrated.ok)warning='已将旧存档升级到 v5 连续时间版，角色、住处与既有进度保留。';
         }
       }
       catch(e){try{const backup=storage.getItem(G.BACKUP_KEY);if(!backup)throw new Error('没有备份');cache=readKey(G.BACKUP_KEY);warning='主存档损坏，已读取上一次自动备份。请先导出保存。';}catch{warning='本地存档无法读取；没有覆盖原始数据。可以导入外部备份。';}}
@@ -113,7 +192,7 @@
     }
     return {
       load, get saves(){return cache;},get warning(){return warning;},get unavailable(){return unavailable;},
-      upsert(s){const old=cache.find(x=>x.id===s.id);if(old&&old.updatedAt>s.updatedAt&&old.turn>s.turn)return {ok:false,error:'这个存档已有较新的进度，请重新载入。'};if(!old&&cache.length>=G.MAX_SAVES)return {ok:false,error:`最多保留 ${G.MAX_SAVES} 个存档，请先导出并删除不需要的存档。`};return persist([s,...cache.filter(x=>x.id!==s.id)].sort((a,b)=>b.updatedAt-a.updatedAt));},
+      upsert(s){const old=cache.find(x=>x.id===s.id);if(old&&old.updatedAt>s.updatedAt&&(old.turn>s.turn||old.minutes>s.minutes))return {ok:false,error:'这个存档已有较新的进度，请重新载入。'};if(!old&&cache.length>=G.MAX_SAVES)return {ok:false,error:`最多保留 ${G.MAX_SAVES} 个存档，请先导出并删除不需要的存档。`};return persist([s,...cache.filter(x=>x.id!==s.id)].sort((a,b)=>b.updatedAt-a.updatedAt));},
       remove(id){return persist(cache.filter(s=>s.id!==id));},
       import(text){const incoming=G.parseImport(text);if(cache.length+incoming.length>G.MAX_SAVES)throw new Error(`导入后超过 ${G.MAX_SAVES} 个存档，请先整理存档。`);for(const s of incoming){s.id=uid();s.updatedAt=Date.now();}return {...persist([...incoming,...cache]),count:incoming.length};},
       restoreBackup(){if(!storage)throw new Error('本地存储不可用。');const raw=storage.getItem(G.BACKUP_KEY);if(!raw)throw new Error('还没有自动备份。');const recovered=readKey(G.BACKUP_KEY);if(!recovered.length)throw new Error('备份为空。');return persist(recovered);},

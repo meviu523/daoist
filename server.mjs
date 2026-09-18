@@ -10,7 +10,7 @@ const ROOT=dirname(fileURLToPath(import.meta.url));
 const PUBLIC=join(ROOT,'public');
 const FILES=new Map([
   ['/','index.html'],['/index.html','index.html'],['/styles.css','styles.css'],
-  ...['data','engine','storage','map','app'].map(x=>[`/js/${x}.js`,`js/${x}.js`])
+  ...['data','engine','clock','storage','progression','map','app'].map(x=>[`/js/${x}.js`,`js/${x}.js`])
 ]);
 class HttpError extends Error{constructor(status,message){super(message);this.status=status;}}
 const check=(ok,status,message)=>{if(!ok)throw new HttpError(status,message);};

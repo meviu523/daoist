@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 4;
+  G.VERSION = 5;
   G.TITLE = '外卖修仙录';
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570];
   G.GRID_Y = [120, 300, 480, 660, 840, 1020];

@@ -23,3 +23,18 @@ jobs:
         run: npm test
       - name: Build static site
         run: npm run build
+      - name: Archive reproducible validation inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-source
+          retention-days: 3
+          path: |
+            public/
+            tests/
+            scripts/
+            docs/*.md
+            README.md
+            PROJECT_MEMORY.md
+            package.json
+            server.mjs

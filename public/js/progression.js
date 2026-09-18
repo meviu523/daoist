@@ -153,7 +153,7 @@
 
   const storyActions = new Set(['deliver','choose','travel','moveHome','rest','sleep','cultivate','breakthrough','explore','visit','heal','meal','alchemy']);
   function injectStoryEvent(s) {
-    if (s.gameOver || s.pending || s.ending) return;
+    if (s.gameOver || s.pending || s.ending || s.activity) return;
     const next = storyEvents.find(e => !s.flags[e.flag] && e.ready(s));
     if (!next) return;
     s.flags[next.flag] = true;
@@ -167,6 +167,8 @@
     G.log(s, `主线推进：${next.title}。`, '主线');
   }
 
+  G.afterWorldAction = (s, action) => { if (storyActions.has(action)) injectStoryEvent(s); };
+
   const originalPerform = G.perform;
   G.perform = (original, action, payload = {}) => {
     if (action === 'buy') {
@@ -177,7 +179,7 @@
     }
     const result = originalPerform(original, action, payload);
     if (!result.ok) return result;
-    if (storyActions.has(action)) injectStoryEvent(result.state);
+    // Completion is dispatched by the simulation, never by merely starting an action.
     return result;
   };
 })(globalThis);

@@ -5,14 +5,13 @@
   const clone = x => JSON.parse(JSON.stringify(x));
   const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
   class RuleError extends Error {}
-  class GameOverSignal extends Error {}
   const must = (ok, message) => { if (!ok) throw new RuleError(message); };
   G.clone = clone;
   G.clamp = clamp;
   G.day = s => Math.floor(s.minutes / 1440) + 1;
   G.isNight = s => s.minutes % 1440 >= 1080 || s.minutes % 1440 < 360;
-  G.clock = s => `${String(Math.floor(s.minutes % 1440 / 60)).padStart(2, '0')}:${String(s.minutes % 60).padStart(2, '0')}`;
-  G.timestamp = m => `第${Math.floor(m / 1440) + 1}日 ${String(Math.floor(m % 1440 / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  G.clock = s => `${String(Math.floor(s.minutes % 1440 / 60)).padStart(2, '0')}:${String(Math.floor(s.minutes % 60)).padStart(2, '0')}`;
+  G.timestamp = m => `第${Math.floor(m / 1440) + 1}日 ${String(Math.floor(m % 1440 / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
   G.rand = s => { let x = s.seed >>> 0 || 1; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; s.seed = x >>> 0; return s.seed / 4294967296; };
   const int = (s, min, max) => Math.floor(G.rand(s) * (max - min + 1)) + min;
   G.limits = s => ({ health: 100 + s.player.realm * 12 + (s.equipment.includes('robe') ? 25 : 0), stamina: 100 + s.player.realm * 8, mana: 60 + s.player.realm * 16 + (s.equipment.includes('jade') ? 30 : 0), battery: 80 + s.vehicle.levels.battery * 35, durability: 100 + s.vehicle.levels.durability * 30 });
@@ -31,54 +30,75 @@
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
       daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], ending: null,
-      flags: {firstOrder:false}, recentEvents: [], pending: null, orders: [], logs: [], lastRoute: null
+      flags: {firstOrder:false}, recentEvents: [], pending: null, orders: [], logs: [], lastRoute: null,
+      location: null, activity: null, activeOrder: null, orderRefreshAt: 495, revision: 0
     };
     G.log(s, `你在青藤小屋醒来。白天送达一份热饭，入夜寻一条自己的仙途。${mode === 'ai' ? '本存档使用 AI 剧情；接口不可用时采用经典事件。' : '本存档使用经典剧情。'}`, '启程');
     G.refreshOrders(s);
     return s;
   };
-  // 城市道路采用正交路网。跨江只能通过三座桥，行程不是直线穿河。
+  const EPS = 1e-8;
+  const point = p => ({x:p.x,y:p.y});
+  const distance = (a,b) => (Math.abs(a.x-b.x)+Math.abs(a.y-b.y))*G.WORLD.metersPerUnit;
   const nodes = G.GRID_Y.flatMap((y,r) => G.GRID_X.map((x,c) => ({x,y,c,r})));
-  const nodeIndex = p => nodes.findIndex(n => n.x === p.x && n.y === p.y);
-  G.route = (fromId, toId) => {
-    const from = G.place(fromId), to = G.place(toId);
-    if (!from || !to) throw new RuleError('找不到这个地图地点。');
-    const start = nodeIndex(from), end = nodeIndex(to), dist = Array(nodes.length).fill(Infinity), prev = Array(nodes.length).fill(-1), visited = new Set();
-    dist[start] = 0;
-    while (visited.size < nodes.length) {
-      let u = -1;
-      for (let i = 0; i < nodes.length; i++) if (!visited.has(i) && (u < 0 || dist[i] < dist[u])) u = i;
-      if (u < 0 || !Number.isFinite(dist[u]) || u === end) break;
-      visited.add(u);
-      const a = nodes[u];
-      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-        const c = a.c + dc, r = a.r + dr;
-        if (c < 0 || c > 6 || r < 0 || r > 5) continue;
-        if (dc && Math.min(c,a.c) === 3 && ![1,3,5].includes(r)) continue;
-        const v = r * 7 + c, b = nodes[v], nd = dist[u] + Math.abs(a.x-b.x) + Math.abs(a.y-b.y);
-        if (nd < dist[v]) { dist[v] = nd; prev[v] = u; }
-      }
+  const links = nodes.map(a => nodes.flatMap((b,i) => {
+    const adjacent=Math.abs(a.c-b.c)+Math.abs(a.r-b.r)===1;
+    const bridge=a.r===b.r && Math.min(a.c,b.c)===3;
+    return adjacent && (!bridge || [1,3,5].includes(a.r)) ? [i] : [];
+  }));
+  // 途中坐标必须位于真实路段；虚拟起点连接该路段两端，不能吸附或穿江。
+  G.roadAnchors = p => {
+    if(!p || !Number.isFinite(p.x) || !Number.isFinite(p.y))return [];
+    const exact=nodes.findIndex(n=>Math.abs(n.x-p.x)<EPS&&Math.abs(n.y-p.y)<EPS);
+    if(exact>=0)return [exact];
+    for(let i=0;i<nodes.length;i++)for(const j of links[i]){
+      if(j<i)continue;const a=nodes[i],b=nodes[j];
+      if(Math.abs(distance(a,p)+distance(p,b)-distance(a,b))<EPS &&
+         ((a.x===b.x&&Math.abs(p.x-a.x)<EPS)||(a.y===b.y&&Math.abs(p.y-a.y)<EPS)))return [i,j];
     }
-    const path = []; for (let cur = end; cur >= 0; cur = prev[cur]) { path.unshift({x:nodes[cur].x,y:nodes[cur].y}); if (cur === start) break; }
-    return { from:fromId, to:toId, points:path, meters:Math.round(dist[end] * G.WORLD.metersPerUnit) };
+    return [];
   };
-  G.travelPlan = (s, target, transport = s.transport) => {
-    const r = G.route(s.position, target), km = r.meters / 1000;
-    const weather = G.WEATHER.find(w => w.id === s.weather) || G.WEATHER[0];
-    let speed = transport === 'bike' ? 22 + 4 * s.vehicle.levels.speed : (4.5 + s.player.agility * .08) * (s.learned.includes('lightstep') ? 1.3 : 1);
-    if (transport === 'bike' && s.vehicle.durability < 20) speed *= .7;
-    speed *= weather.speed;
-    return {...r, transport, speed, km, minutes:Math.ceil(km / speed * 60), battery:transport === 'bike' ? Math.round(km * 500) / 100 : 0,
-      stamina:Math.ceil(km * (transport === 'bike' ? 2.5 : 8) * Math.max(.55,1-s.player.constitution*.01)),
-      wear:transport === 'bike' ? km * .6 / (1 + s.vehicle.levels.durability * .3) : 0};
+  G.playerPoint = s => point(G.place(s.position)||s.location||G.place('home'));
+  G.locationName = s => G.place(s.position)?.name || '道路途中';
+  G.route = (fromId, toId) => {
+    const from=typeof fromId==='string'?G.place(fromId):fromId,to=G.place(toId);
+    const anchors=G.roadAnchors(from);must(anchors.length&&to,'找不到合法的道路位置。');
+    const end=nodes.findIndex(n=>n.x===to.x&&n.y===to.y);
+    const dist=Array(nodes.length).fill(Infinity),prev=Array(nodes.length).fill(-1),visited=new Set();
+    for(const i of anchors)dist[i]=distance(from,nodes[i]);
+    while(visited.size<nodes.length){
+      let u=-1;
+      for(let i=0;i<nodes.length;i++)if(!visited.has(i)&&(u<0||dist[i]<dist[u]))u=i;
+      if(u<0||!Number.isFinite(dist[u])||u===end)break;visited.add(u);
+      for(const v of links[u]){const d=dist[u]+distance(nodes[u],nodes[v]);if(d<dist[v]){dist[v]=d;prev[v]=u;}}
+    }
+    const points=[];for(let cur=end;cur>=0;cur=prev[cur])points.unshift(point(nodes[cur]));
+    if(distance(from,points[0])>EPS)points.unshift(point(from));
+    return {from:typeof fromId==='string'?fromId:null,to:toId,points,meters:dist[end]};
   };
-  G.travelBlock = (s, plan) => {
-    if (plan.meters && plan.transport === 'bike' && s.vehicle.battery <= 0) return '电动车没电了，请先切换步行，或在当前位置充电。';
-    if (plan.meters && plan.transport === 'bike' && s.vehicle.durability <= 0) return '车况为零，无法骑行。请切换步行，到修车铺维修。';
-    if (s.vehicle.battery + 1e-8 < plan.battery) return `电量不足：本次需要 ${plan.battery.toFixed(1)}，当前只有 ${s.vehicle.battery.toFixed(1)}。可切换步行。`;
-    if (s.player.stamina < plan.stamina) return `体力不足：本次需要 ${plan.stamina}，请先休息或服用清心散。`;
+  G.routeFrom = (s,target) => G.route(G.playerPoint(s),target);
+  G.movementRates = (s,transport=s.transport) => {
+    const bike=transport==='bike';
+    let speed=bike?22+4*s.vehicle.levels.speed:(4.5+s.player.agility*.08)*(s.learned.includes('lightstep')?1.3:1);
+    if(bike&&s.vehicle.durability<=20+EPS)speed*=.7;
+    speed*=(G.WEATHER.find(w=>w.id===s.weather)||G.WEATHER[0]).speed;
+    return {speed,metersPerMinute:speed*1000/60,battery:bike?.005:0,
+      stamina:(bike?2.5:8)*Math.max(.55,1-s.player.constitution*.01)/1000,
+      wear:bike?.0006/(1+s.vehicle.levels.durability*.3):0};
+  };
+  G.travelPlan = (s,target,transport=s.transport) => {
+    const r=G.routeFrom(s,target),rates=G.movementRates(s,transport),km=r.meters/1000;
+    return {...r,transport,speed:rates.speed,km,minutes:r.meters/rates.metersPerMinute,
+      battery:r.meters*rates.battery,stamina:r.meters*rates.stamina,wear:r.meters*rates.wear};
+  };
+  G.travelBlock = (s,p) => {
+    if(p.meters>EPS&&p.transport==='bike'&&s.vehicle.battery<=EPS)return '电动车没电了，请切换步行，或在当前位置充电。';
+    if(p.meters>EPS&&p.transport==='bike'&&s.vehicle.durability<=EPS)return '车况为零，无法骑行。请步行到修车铺维修。';
+    if(s.vehicle.battery+EPS<p.battery)return `电量不足：需要 ${p.battery.toFixed(1)}，当前 ${s.vehicle.battery.toFixed(1)}。可切换步行。`;
+    if(s.player.stamina+EPS<p.stamina)return `体力不足：需要 ${p.stamina.toFixed(1)}，请先休息或服药。`;
     return '';
   };
+  G.durationText = minutes => `${Math.max(0,Math.ceil(minutes-EPS))} 分钟`;
   const homeOf = s => G.residence(s.residenceId) || G.residence('qingteng') || G.RESIDENCES[0];
   G.currentResidence = homeOf;
   G.residenceRecoveryText = home => {
@@ -89,35 +109,6 @@
     }
     return parts.join(' · ') || '仅提供住宿';
   };
-  function passTime(s, minutes) {
-    must(Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440, '行动时长无效。');
-    const oldDay = G.day(s), target = s.minutes + minutes, endDay = Math.floor(target / 1440) + 1;
-    for (let day = oldDay + 1; day <= endDay; day++) {
-      s.minutes = (day - 1) * 1440;
-      s.daily.day = day; s.daily.delivered = 0; s.daily.claimed = false;
-      s.weather = G.WEATHER[int(s,0,G.WEATHER.length-1)].id;
-      if (day % 7 === 0) {
-        const home = homeOf(s);
-        if (s.player.money < home.rent) {
-          s.gameOver = { reason:'rent', day, residenceId:home.id, rent:home.rent, money:s.player.money };
-          G.log(s, `${home.name}房租到期，需要 ¥${home.rent}，但你只有 ¥${s.player.money}。你无法继续维持住处，这段旅程在这里结束。`, '结局');
-          throw new GameOverSignal();
-        }
-        s.player.money -= home.rent;
-        G.log(s, `本周${home.name}房租扣除 ¥${home.rent}。下一次房租将在第 ${day+7} 日结算。`, '生活');
-      }
-      G.log(s, `新的一天。天气：${G.WEATHER.find(w=>w.id===s.weather).name}。每日委托与签到已更新。`, '晨光');
-    }
-    s.minutes = target;
-  }
-  function move(s, target) {
-    const p = G.travelPlan(s,target), error = G.travelBlock(s,p); must(!error,error);
-    s.player.stamina -= p.stamina;
-    s.vehicle.battery = Math.max(0,s.vehicle.battery-p.battery);
-    s.vehicle.durability = Math.max(0,s.vehicle.durability-p.wear);
-    passTime(s,p.minutes); s.position = target; s.lastRoute = p; s.stats.distance += p.meters;
-    return p;
-  }
   G.effectNames = {money:'现金',coins:'外卖币',health:'气血',stamina:'体力',mana:'灵力',qi:'修为',insight:'悟性',constitution:'根骨',agility:'身法',luck:'机缘',karma:'善缘',rep:'口碑',fragments:'碎玉',herb:'灵草',affinity:'好感',trust:'信任'};
   G.effectText = effects => Object.entries(effects || {}).filter(([,v])=>v).map(([k,v])=>`${G.effectNames[k]||k} ${v > 0 ? '+' : ''}${v}`).join(' · ') || '不改变属性';
   G.effectBlock = (s, effects, itemCost = {}) => {
@@ -138,29 +129,30 @@
   }
   function normalize(s) {
     const caps = G.limits(s);
-    for (const key of ['health','stamina','mana']) s.player[key] = clamp(Math.round(s.player[key]),0,caps[key]);
+    for (const key of ['health','stamina','mana']) s.player[key] = clamp(s.player[key],0,caps[key]);
     for (const key of ['insight','constitution','agility','luck']) s.player[key] = clamp(s.player[key],1,99);
     s.player.money = clamp(Math.round(s.player.money),0,9999999); s.player.coins = clamp(Math.round(s.player.coins),0,999999);
-    s.player.qi = clamp(Math.round(s.player.qi),0,999999); s.player.rep = clamp(s.player.rep,-50,100); s.player.karma = clamp(s.player.karma,-50,100);
+    s.player.qi = clamp(s.player.qi,0,999999); s.player.rep = clamp(s.player.rep,-50,100); s.player.karma = clamp(s.player.karma,-50,100);
     s.vehicle.battery = clamp(s.vehicle.battery,0,caps.battery); s.vehicle.durability = clamp(s.vehicle.durability,0,caps.durability);
     for (const bond of Object.values(s.bonds)) {bond.affinity=clamp(bond.affinity,0,100);bond.trust=clamp(bond.trust,0,100);}
   }
   G.refreshOrders = s => {
-    const pool = G.PLACES.filter(p => p.id !== s.position);
-    const chosen = [];
-    // 保留若干近单，避免低电量或低体力时所有任务都在远处。
-    pool.sort((a,b)=>G.route(s.position,a.id).meters-G.route(s.position,b.id).meters);
-    const count = G.isNight(s) ? 4 : 6;
-    for (let i=0;i<count;i++) {
-      const idx = int(s,0,i<2 ? Math.min(7,pool.length-1) : pool.length-1), place = pool.splice(idx,1)[0];
-      const available = G.ORDER_TYPES.filter(t => (t.condition !== 'night' || G.isNight(s)) && (t.condition !== 'mystic' || s.player.realm >= 1));
-      const type = available[int(s,0,available.length-1)], plan = G.travelPlan(s,place.id);
-      chosen.push({ id:`o-${s.turn}-${i}-${s.seed}`, target:place.id, title:type.title, desc:type.desc, condition:type.condition,
-        expiresAt:s.minutes+plan.minutes+int(s,type.condition==='urgent'?3:7,type.condition==='urgent'?8:20),
-        reward:Math.round(12+plan.km*6+type.tip+Math.max(0,s.player.rep)*.08), coins:Math.min(6,2+Math.floor(plan.km/1.5)),
-        npc:G.NPCS.find(n=>n.place===place.id)?.id || null });
+    // 只补空缺，已接票据独立保存；零耗时事务不刷新或重抽订单。
+    s.orders=s.orders.filter(o=>o.expiresAt>s.minutes+EPS&&o.id!==s.activeOrder?.id);
+    const used=new Set([...s.orders.map(o=>o.target),s.activeOrder?.target]);
+    const pool=G.PLACES.filter(p=>p.id!==s.position&&!used.has(p.id));
+    const distances=new Map(pool.map(p=>[p.id,G.routeFrom(s,p.id).meters]));
+    pool.sort((a,b)=>distances.get(a.id)-distances.get(b.id));
+    const count=G.isNight(s)?4:6;
+    while(s.orders.length<count&&pool.length){
+      const i=s.orders.length,idx=int(s,0,i<2?Math.min(7,pool.length-1):pool.length-1),place=pool.splice(idx,1)[0];
+      const available=G.ORDER_TYPES.filter(t=>(t.condition!=='night'||G.isNight(s))&&(t.condition!=='mystic'||s.player.realm>=1));
+      const type=available[int(s,0,available.length-1)],plan=G.travelPlan(s,place.id);
+      s.orders.push({id:`o-${s.turn}-${i}-${s.seed}`,target:place.id,title:type.title,desc:type.desc,condition:type.condition,
+        expiresAt:s.minutes+Math.ceil(plan.minutes)+int(s,type.condition==='urgent'?3:7,type.condition==='urgent'?8:20),
+        reward:Math.round(12+plan.km*6+type.tip+Math.max(0,s.player.rep)*.08),coins:Math.min(6,2+Math.floor(plan.km/1.5)),
+        npc:G.NPCS.find(n=>n.place===place.id)?.id||null});
     }
-    s.orders = chosen;
   };
   function event(s, kind, overrides = {}) {
     let base;
@@ -196,90 +188,294 @@
     {id:'bond',ready:s.stats.delivered>=20&&Object.values(s.bonds).some(b=>b.path==='romance'&&b.stage>=4&&b.affinity>=60),requirement:'20 单 · 完成一条情感线 · 好感 60'},
     {id:'friendship',ready:s.stats.delivered>=25&&Object.values(s.bonds).filter(b=>b.stage>=4).length>=3,requirement:'25 单 · 完成至少三位朋友的故事'}
   ];
-  G.perform = (original, action, payload = {}) => {
+  const instantWhileBusy = new Set(['buy','sign','claim','stop']);
+  G.canStop = s => !!s.activity && !['choice','rescue'].includes(s.activity.kind);
+  function locate(s,p){
+    s.location=point(p);
+    s.position=G.PLACES.find(n=>distance(n,p)<EPS)?.id||null;
+  }
+  G.pointOnRoute = (route,meters) => {
+    let remaining=clamp(meters,0,route.meters);
+    for(let i=1;i<route.points.length;i++){
+      const a=route.points[i-1],b=route.points[i],length=distance(a,b);
+      if(remaining<=length+EPS){const t=length?clamp(remaining/length,0,1):1;return {x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t};}
+      remaining-=length;
+    }
+    return point(route.points.at(-1));
+  };
+  const workDuration = (kind,p={}) => ({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:30,repair:30,upgrade:45,heal:30,meal:20,rescue:180,
+    cultivate:p.kind==='meditate'?90:p.kind==='body'?30:45,alchemy:p.recipe==='heal'?20:25,choice:p.duration||0})[kind]||0;
+  function startWork(s,a){
+    a.phase='work';a.elapsed=0;a.recovery={};
+    const cap=G.limits(s);
+    const full=(key)=>Math.max(0,cap[key]-(key==='battery'||key==='durability'?s.vehicle[key]:s.player[key]));
+    switch(a.kind){
+      case 'rest':a.recovery={health:8,stamina:38,mana:10};break;
+      case 'sleep':{
+        const home=G.residence(a.params.id);a.recovery={...home.recovery};
+        for(const key of home.full)a.recovery[key]=full(key);break;
+      }
+      case 'charge':a.recovery={battery:full('battery')};break;
+      case 'repair':a.recovery={durability:full('durability')};break;
+      case 'heal':a.recovery={health:full('health')};break;
+      case 'meal':a.recovery={health:10,stamina:45};break;
+    }
+  }
+  function begin(s,kind,params={},target=null){
+    const route=target?G.routeFrom(s,target):null;
+    if(route&&kind!=='rescue'){const error=G.travelBlock(s,G.travelPlan(s,target));must(!error,error);}
+    const a={kind,params:clone(params),target,phase:route?.meters>EPS?'travel':'work',duration:workDuration(kind,params),elapsed:0,startedAt:s.minutes,
+      route,travelled:0,recovery:{},gainedQi:0};
+    s.activity=a;
+    if(a.phase==='work')startWork(s,a);
+    return a;
+  }
+  function markComplete(s,kind){
+    s.activity=null;s.turn++;s.revision++;normalize(s);
+    if(s.player.health<=EPS){beginRescue(s);return;}
+    G.refreshOrders(s);
+    G.afterWorldAction?.(s,kind);
+  }
+  function finishChoice(s,p,index){
+    const c=p.choices[index];
+    // Spendable negative costs were paid once when the choice was committed.
+    const result=Object.fromEntries(Object.entries(c.effects||{}).filter(([k,v])=>!(v<0&&['money','coins','stamina','mana'].includes(k))));
+    effects(s,result,p.npcId);
+    if(p.npcId){if(p.npcAdvance)s.bonds[p.npcId].stage++;if(c.path)s.bonds[p.npcId].path=c.path;}
+    G.log(s,`${c.result}（${G.effectText(c.effects)}）`,p.npcId?'羁绊':p.source==='ai'?'AI 奇遇':'奇遇');
+    if(p.delivery)settleDelivery(s,p.delivery);
+  }
+  function finishVisit(s,id){
+    const npc=G.NPCS.find(n=>n.id===id),bond=s.bonds[id];bond.lastTalkDay=G.day(s);
+    const stage=bond.stage,advanced=stage<4&&bond.affinity>=[0,10,24,40][stage];
+    if(advanced){const [title,text,...choices]=npc.arc[stage];s.pending={id:`npc-${s.turn}-${s.seed}`,kind:'social',title,text,choices:clone(choices),npcId:id,npcAdvance:true,source:'classic',aiStatus:'skip'};}
+    else s.pending={id:`npc-talk-${s.turn}-${s.seed}`,kind:'social',title:`与${npc.name}的片刻`,text:stage>=4?'你们说起最近的生活。有些关系走到后来，最珍贵的恰是这些不必特别发生的日常。':`${npc.name}问你今天过得怎么样。再多一点陪伴，也许你们就能谈起更深的往事。`,choices:[{label:'分享今天见到的小事',result:'你们聊得很开心。',effects:{affinity:5,trust:2}},{label:'认真听对方说话',result:'被倾听的感觉，让你们更亲近了一些。',effects:{affinity:4,trust:3}},{label:'带一份热饭一起吃',result:'两个人分一份热饭，也分担了一些疲惫。',effects:{money:-12,affinity:7,stamina:8}}],npcId:id,npcAdvance:false,source:'classic',aiStatus:s.mode==='ai'?'unrequested':'skip'};
+    G.log(s,`拜访${npc.name}，交谈 20 分钟。`,'拜访');
+  }
+  function deliverAtDestination(s){
+    const ticket=s.activeOrder;if(!ticket)return;
+    s.activeOrder=null;
+    if(!s.flags.firstOrder||G.rand(s)<Math.min(.8,.5+s.player.luck*.01))event(s,'delivery',{delivery:clone(ticket)});
+    else settleDelivery(s,ticket);
+  }
+  function finish(s,a){
+    switch(a.kind){
+      case 'travel':
+        G.log(s,`抵达${G.place(a.target).name}，沿道路行进 ${(a.route.meters/1000).toFixed(2)} 公里。`,'出行');
+        if(s.activeOrder?.target===a.target)deliverAtDestination(s);break;
+      case 'deliver':deliverAtDestination(s);break;
+      case 'moveHome':{
+        const home=G.residence(a.params.id);s.residenceId=home.id;
+        G.log(s,`搬入${home.name}。周租 ¥${home.rent}；睡眠恢复：${G.residenceRecoveryText(home)}。`,'生活');break;
+      }
+      case 'rest':G.log(s,'原地休息完成。已按实际休息时长恢复体力、气血与灵力。','休息');break;
+      case 'sleep':G.log(s,`在${G.residence(a.params.id).name}睡了八小时，住宿恢复已逐步生效。`,'休息');break;
+      case 'cultivate':
+        s.stats.trained++;
+        if(a.params.kind==='body'&&s.stats.trained%3===0)effects(s,{constitution:1,agility:1});
+        if(a.params.kind!=='body'&&s.stats.trained%4===0)effects(s,{insight:1});
+        G.log(s,`修炼 ${a.duration} 分钟完成，修为 +${a.gainedQi.toFixed(1)}。昼夜与灵地加成按实际修炼时段计算。`,'修炼');
+        if(G.rand(s)<Math.min(.7,.18+s.player.luck*.012))event(s,'cultivation');break;
+      case 'breakthrough':{
+        const need=G.REALMS[a.params.realm].need;
+        if(G.rand(s)*100<a.params.chance){s.player.realm++;effects(s,{health:12,stamina:8,mana:16,insight:1,constitution:1,agility:1});G.log(s,`突破成功，踏入${G.REALMS[s.player.realm].name}。`,'破境');}
+        else{s.player.qi+=need-Math.floor(need*.25);const protectedByCharm=(s.inventory.charm||0)>0;if(protectedByCharm)s.inventory.charm--;else s.player.health-=18;G.log(s,`突破未成，退回 75% 左右修为。${protectedByCharm?'护身符消散，护住经脉。':'气血 -18。'}`,'破境');}break;
+      }
+      case 'alchemy':{
+        const success=G.rand(s)<Math.min(.98,.85+s.player.insight*.01),id=a.params.recipe;
+        if(success)s.inventory[id]=(s.inventory[id]||0)+1;
+        G.log(s,success?`炼成${G.ITEMS.find(i=>i.id===id).name} ×1。`:'炉火忽然一跳，药力散去。这一炉失败了，材料已消耗。','炼丹');break;
+      }
+      case 'explore':
+        s.stats.explored++;if(G.rand(s)<Math.min(.45,.05+s.player.luck*.01)){s.inventory.herb=(s.inventory.herb||0)+1;G.log(s,'探索时额外发现青灵草 ×1。','机缘');}
+        event(s,'explore');G.log(s,`在${G.locationName(s)}探索半小时，遇见一段新的故事。`,'探索');break;
+      case 'visit':finishVisit(s,a.params.id);break;
+      case 'charge':G.log(s,'充电完成，电量已补满。','电动车');break;
+      case 'repair':G.log(s,'维修完成，车况已恢复。','电动车');break;
+      case 'upgrade':{
+        const kind=a.params.kind;s.vehicle.levels[kind]++;
+        if(kind==='battery')s.vehicle.battery=G.limits(s).battery;if(kind==='durability')s.vehicle.durability=G.limits(s).durability;
+        G.log(s,`升级${{speed:'速度',battery:'电池容量',durability:'耐用性'}[kind]}至 ${s.vehicle.levels[kind]} 级。`,'电动车');break;
+      }
+      case 'heal':G.log(s,'医馆治疗完成，气血已恢复。','生活');break;
+      case 'meal':G.log(s,'吃完一碗热面，体力与气血已逐步恢复。','生活');break;
+      case 'choice':finishChoice(s,a.params.event,a.params.index);break;
+      case 'rescue':{
+        const fee=Math.min(60,s.player.money);s.player.money-=fee;s.player.health=45;s.player.stamina=Math.max(35,s.player.stamina);
+        G.log(s,`你在医馆醒来，治疗扣除 ¥${fee}。别再把自己逼得太紧。`,'救助');break;
+      }
+    }
+    markComplete(s,a.kind==='choice'?'choose':a.kind);
+  }
+  function arrive(s,a){
+    locate(s,G.place(a.target));s.lastRoute=clone(a.route);s.revision++;
+    if(a.duration>0){startWork(s,a);G.log(s,`抵达${G.place(a.target).name}，开始${G.activityLabel(a)}。`,'出行');}
+    else finish(s,a);
+  }
+  function beginRescue(s){
+    begin(s,'rescue',{},'clinic');G.log(s,'你倒在路边。路人正沿道路将你送往医馆，随后需要治疗三小时。','救助');
+  }
+  G.activityLabel = a => ({travel:'赶路',deliver:'配送',moveHome:'搬家',sleep:'睡眠',visit:'交谈',rest:'休息',cultivate:'修炼',breakthrough:'突破',alchemy:'炼丹',explore:'探索',charge:'充电',repair:'维修',upgrade:'升级座驾',heal:'治疗',meal:'用餐',choice:'处理事件',rescue:'救助'})[a?.kind]||'原地停留';
+  G.activityRemaining = s => {
+    const a=s.activity;if(!a)return 0;
+    return a.phase==='travel'?(a.route.meters-a.travelled)/(a.kind==='rescue'?500:G.movementRates(s).metersPerMinute)+a.duration:Math.max(0,a.duration-a.elapsed);
+  };
+  function calendar(s){
+    const day=G.day(s);s.daily.day=day;s.daily.delivered=0;s.daily.claimed=false;
+    if(day%7===0){
+      const home=homeOf(s);
+      if(s.player.money<home.rent){s.gameOver={reason:'rent',day,residenceId:home.id,rent:home.rent,money:s.player.money};G.log(s,`${home.name}房租到期，需要 ¥${home.rent}，但你只有 ¥${s.player.money}。这段旅程到此结束。`,'结局');s.revision++;return;}
+      s.player.money-=home.rent;G.log(s,`本周${home.name}房租扣除 ¥${home.rent}。`,'生活');
+    }
+    s.weather=G.WEATHER[int(s,0,G.WEATHER.length-1)].id;
+    G.log(s,`新的一天。天气：${G.WEATHER.find(w=>w.id===s.weather).name}。每日委托与签到已更新。`,'晨光');s.revision++;
+  }
+  function resourceRate(s,a){
+    if(a.kind==='explore')return 12/30;
+    if(a.kind==='cultivate')return (a.params.kind==='meditate'?24:a.params.kind==='body'?20:12)/a.duration;
+    return 0;
+  }
+  function progressWork(s,a,dt){
+    const cap=G.limits(s),fraction=dt/a.duration;
+    for(const [key,total] of Object.entries(a.recovery)){
+      const owner=['battery','durability'].includes(key)?s.vehicle:s.player;
+      owner[key]=Math.min(cap[key],owner[key]+total*fraction);
+      if(cap[key]-owner[key]<EPS)owner[key]=cap[key];
+    }
+    s.player.stamina=Math.max(0,s.player.stamina-resourceRate(s,a)*dt);
+    if(a.kind==='cultivate'){
+      const kind=a.params.kind,base=kind==='meditate'?32:kind==='body'?9:17;
+      const gain=base*(G.isNight(s)?1.45:1)*(s.position==='temple'?1.25:1)*(s.learned.includes('breathing')?1.3:1)*(1+s.player.insight*.015)*fraction;
+      s.player.qi+=gain;a.gainedQi+=gain;if(kind!=='body')s.player.mana=Math.min(cap.mana,s.player.mana+12*fraction);
+    }
+    a.elapsed+=dt;
+  }
+  // Pure simulation: one game clock, exact event boundaries, no DOM/Date timers.
+  // A caller supplies elapsed GAME minutes. A pending event discards the unused
+  // interval, so time spent reading (or waiting for AI) can never be caught up.
+  G.advance = (original,minutes) => {
+    must(Number.isFinite(minutes)&&minutes>=0&&minutes<=1440,'时间增量无效。');
+    if(!minutes||original.gameOver||original.pending||original.ending)return original;
+    const s=clone(original);let remaining=minutes;
+    if(!Number.isFinite(s.orderRefreshAt)||s.orderRefreshAt<=s.minutes+EPS)s.orderRefreshAt=(Math.floor(s.minutes/15)+1)*15;
+    while(remaining>EPS&&!s.gameOver&&!s.pending&&!s.ending){
+      const a=s.activity,oldDay=G.day(s),now=s.minutes;
+      if(a?.phase==='travel'&&a.route.meters-a.travelled<=EPS){arrive(s,a);continue;}
+      if(a?.phase==='work'&&a.duration-a.elapsed<=EPS){finish(s,a);continue;}
+      const midnight=G.day(s)*1440;
+      const phaseBoundary=Math.floor(now/1440)*1440+([360,1080,1440].find(m=>m>now%1440)||1440);
+      const expiry=Math.min(Infinity,...s.orders.map(o=>o.expiresAt).filter(t=>t>now+EPS));
+      let dt=Math.min(remaining,1,midnight-now,phaseBoundary-now,s.orderRefreshAt-now,expiry-now);
+      let rates=null;
+      if(a?.phase==='travel'){
+        rates=a.kind==='rescue'?{metersPerMinute:500,stamina:0,battery:0,wear:0}:G.movementRates(s);
+        let available=a.route.meters-a.travelled;
+        if(rates.stamina)available=Math.min(available,s.player.stamina/rates.stamina);
+        if(rates.battery)available=Math.min(available,s.vehicle.battery/rates.battery);
+        if(rates.wear)available=Math.min(available,s.vehicle.durability/rates.wear);
+        if(available<=EPS){s.activity=null;G.log(s,'资源不足，已停在当前道路位置。请休息、充电或切换步行后继续。','出行');s.revision++;continue;}
+        if(rates.wear&&s.vehicle.durability>20+EPS)available=Math.min(available,(s.vehicle.durability-20)/rates.wear);
+        dt=Math.min(dt,available/rates.metersPerMinute);
+      }else if(a){
+        dt=Math.min(dt,a.duration-a.elapsed);
+        const rate=resourceRate(s,a);if(rate)dt=Math.min(dt,s.player.stamina/rate);
+        if(rate&&s.player.stamina<=EPS&&a.duration-a.elapsed>EPS){s.activity=null;G.log(s,'体力不足，当前行动已停止。已获得的恢复和修为保留。','行动');s.revision++;continue;}
+      }
+      if(dt<=0)throw new RuleError('时间边界无效，已停止推进。');
+      if(a?.phase==='travel'){
+        const meters=Math.min(a.route.meters-a.travelled,rates.metersPerMinute*dt);
+        s.player.stamina=Math.max(0,s.player.stamina-meters*rates.stamina);
+        s.vehicle.battery=Math.max(0,s.vehicle.battery-meters*rates.battery);
+        s.vehicle.durability=Math.max(0,s.vehicle.durability-meters*rates.wear);
+        a.travelled+=meters;s.stats.distance+=meters;locate(s,G.pointOnRoute(a.route,a.travelled));
+      }else if(a)progressWork(s,a,dt);
+      s.minutes=now+dt;remaining=Math.max(0,remaining-dt);
+      if(Math.abs(s.minutes-midnight)<EPS)s.minutes=midnight;
+      if(G.day(s)!==oldDay)calendar(s);
+      // Rent has priority over a delivery or move-home completing at midnight.
+      if(s.gameOver)break;
+      const count=s.orders.length;s.orders=s.orders.filter(o=>o.expiresAt>s.minutes+EPS);
+      if(count!==s.orders.length)s.revision++;
+      if(s.minutes+EPS>=s.orderRefreshAt){G.refreshOrders(s);s.orderRefreshAt+=15;s.revision++;}
+      if(a===s.activity){
+        if(a?.phase==='travel'&&a.route.meters-a.travelled<EPS)arrive(s,a);
+        else if(a?.phase==='work'&&a.duration-a.elapsed<EPS)finish(s,a);
+      }
+    }
+    normalize(s);s.updatedAt=Date.now();return s;
+  };
+  G.perform = (original,action,payload={}) => {
     const s=clone(original);
-    try {
-      must(!s.gameOver, '这段旅程已经结束，请返回开始页创建新存档。');
-      must(!s.pending || action==='choose', '请先完成当前事件的选择。');
-      must(!s.ending || action==='continue', '请先选择继续游历，或返回开始页。');
+    try{
+      must(!s.gameOver,'这段旅程已经结束，请返回开始页创建新存档。');
+      must(!s.pending||action==='choose','请先完成当前事件的选择。');
+      must(!s.ending||action==='continue','请先选择继续游历，或返回开始页。');
+      must(!s.activity||instantWhileBusy.has(action),'当前行动仍在进行，请先停止。');
       switch(action){
+        case 'stop':
+          must(G.canStop(s),'当前行动不能中断。');
+          G.log(s,`停止${G.activityLabel(s.activity)}。已发生的消耗不会返还，已获得的恢复与修为保留。${s.activeOrder?'配送订单仍在计时。':''}`,'行动');s.activity=null;break;
         case 'transport':
-          must(['bike','walk'].includes(payload.mode),'出行方式无效。');
-          s.transport=payload.mode; G.log(s, `出行方式改为${payload.mode==='bike'?'骑电动车':'步行推车'}。`, '出行'); break;
-        case 'travel': {
-          must(G.place(payload.target),'目的地不存在。'); must(payload.target!==s.position,'你已经在这里。');
-          const plan=move(s,payload.target);G.log(s,`前往${G.place(payload.target).name}，沿路 ${plan.km.toFixed(2)} 公里，用时 ${plan.minutes} 分钟。`,'出行');break;
-        }
-        case 'deliver': {
-          const ticket=s.orders.find(o=>o.id===payload.id);must(ticket,'这张订单已刷新，请重新查看地图。');
-          const plan=G.travelPlan(s,ticket.target);const block=G.travelBlock(s,plan);must(!block,block);
-          must(s.minutes+plan.minutes<=ticket.expiresAt,'按当前出行方式无法在时限内抵达。');
+          must(['bike','walk'].includes(payload.mode),'出行方式无效。');s.transport=payload.mode;
+          G.log(s,`出行方式改为${payload.mode==='bike'?'骑电动车':'步行推车'}。`,'出行');break;
+        case 'travel':
+          must(G.place(payload.target),'目的地不存在。');must(payload.target!==s.position,'你已经在这里。');
+          begin(s,'travel',{},payload.target);G.log(s,`出发前往${G.place(payload.target).name}。`,'出行');break;
+        case 'deliver':{
+          must(!s.activeOrder,'已有未完成订单，请继续配送或明确取消。');
+          const ticket=s.orders.find(o=>o.id===payload.id);must(ticket,'这张订单已经失效，请重新查看地图。');
+          const plan=G.travelPlan(s,ticket.target),block=G.travelBlock(s,plan);must(!block,block);
+          must(s.minutes+plan.minutes<=ticket.expiresAt+EPS&&s.minutes<ticket.expiresAt,'按当前出行方式无法在时限内抵达。');
           if(ticket.condition==='mystic')must(s.player.mana>=8,'灵异订单需要至少 8 点灵力。');
           if(ticket.condition==='careful')must(s.player.stamina-plan.stamina>=10,'易损餐品需要抵达时仍有至少 10 点体力。');
-          move(s,ticket.target);if(ticket.condition==='mystic')s.player.mana-=8;
-          G.log(s,`接下「${ticket.title}」，抵达${G.place(ticket.target).name}。行程 ${plan.km.toFixed(2)} 公里 / ${plan.minutes} 分钟。`,'接单');
-          if(!s.flags.firstOrder||G.rand(s)<Math.min(.8,.5+s.player.luck*.01))event(s,'delivery',{delivery:clone(ticket)});else settleDelivery(s,ticket);
-          break;
+          begin(s,'deliver',{},ticket.target);s.activeOrder=clone(ticket);s.orders=s.orders.filter(o=>o.id!==ticket.id);
+          if(ticket.condition==='mystic')s.player.mana-=8;
+          G.log(s,`接下「${ticket.title}」，正前往${G.place(ticket.target).name}。送达并处理事件后才结算报酬。`,'接单');break;
         }
-        case 'choose': {
-          must(s.pending,'当前没有待处理事件。');must(payload.eventId===s.pending.id,'这次事件已经处理，请勿重复结算。');
+        case 'resumeDelivery':
+          must(s.activeOrder,'没有待配送的订单。');begin(s,'deliver',{},s.activeOrder.target);G.log(s,'继续配送当前订单。','接单');break;
+        case 'cancelDelivery':
+          must(s.activeOrder,'没有待配送的订单。');G.log(s,`取消「${s.activeOrder.title}」，不发放报酬。`,'配送');s.activeOrder=null;break;
+        case 'choose':{
+          must(s.pending&&payload.eventId===s.pending.id,'这次事件已经处理，请勿重复结算。');
           const c=s.pending.choices[payload.index];must(c,'选项不存在。');const block=G.choiceBlock(s,c);must(!block,block);
-          const p=s.pending;effects(s,c.effects,p.npcId,c.itemCost);passTime(s,c.duration||0);
-          if(p.npcId){if(p.npcAdvance)s.bonds[p.npcId].stage++;if(c.path)s.bonds[p.npcId].path=c.path;}
-          G.log(s,`${c.result}（${G.effectText(c.effects)}）`,p.npcId?'羁绊':p.source==='ai'?'AI 奇遇':'奇遇');
-          s.pending=null;if(p.delivery)settleDelivery(s,p.delivery);break;
+          const p=s.pending,cost=Object.fromEntries(Object.entries(c.effects||{}).filter(([k,v])=>v<0&&['money','coins','stamina','mana'].includes(k)));
+          effects(s,cost,p.npcId,c.itemCost);s.pending=null;
+          if(c.duration){begin(s,'choice',{event:p,index:payload.index,duration:c.duration});G.log(s,`开始处理：${c.label}，需要 ${c.duration} 分钟。`,'奇遇');}
+          else{finishChoice(s,p,payload.index);markComplete(s,'choose');}break;
         }
-        case 'moveHome': {
+        case 'moveHome':{
           const home=G.residence(payload.id);must(home,'住处不存在。');must(home.id!==s.residenceId,'你已经住在这里。');
-          const plan=move(s,home.place);s.residenceId=home.id;
-          G.log(s,`搬入${home.name}。每七天房租 ¥${home.rent}；睡眠恢复：${G.residenceRecoveryText(home)}。${plan.minutes?`搬家路程用时 ${plan.minutes} 分钟。`:''}`,'生活');break;
+          begin(s,'moveHome',{id:home.id},home.place);G.log(s,`出发搬往${home.name}。到达后新住处才生效。`,'生活');break;
         }
-        case 'rest':
-          passTime(s,60);effects(s,{stamina:38,health:8,mana:10});G.log(s,'在原地歇息一小时。体力 +38，气血 +8，灵力 +10。','休息');break;
-        case 'sleep': {
-          const home=homeOf(s),plan=move(s,home.place);passTime(s,480);const cap=G.limits(s);
-          for(const key of ['health','stamina','mana']){
-            if(home.full.includes(key))s.player[key]=cap[key];
-            else s.player[key]=Math.min(cap[key],s.player[key]+(home.recovery[key]||0));
-          }
-          if(home.full.includes('battery'))s.vehicle.battery=cap.battery;
-          else s.vehicle.battery=Math.min(cap.battery,s.vehicle.battery+(home.recovery.battery||0));
-          G.log(s,`在${home.name}睡了八小时${plan.minutes?`（另有路程 ${plan.minutes} 分钟）`:''}。${G.residenceRecoveryText(home)}。`,'休息');break;
-        }
-        case 'cultivate': {
+        case 'sleep':{const home=homeOf(s);begin(s,'sleep',{id:home.id},home.place);G.log(s,`准备在${home.name}睡八小时。`,'休息');break;}
+        case 'rest':begin(s,'rest');G.log(s,'开始原地休息，恢复随时间逐步生效。','休息');break;
+        case 'cultivate':{
           const kind=payload.kind||'breath';must(['breath','meditate','body'].includes(kind),'修炼方式无效。');
-          const cost=kind==='meditate'?24:kind==='body'?20:12,duration=kind==='meditate'?90:kind==='body'?30:45;
-          must(s.player.stamina>=cost,'体力不足，请先休息。');const night=G.isNight(s),place=s.position==='temple'?1.25:1;
-          let qi=Math.round((kind==='meditate'?32:kind==='body'?9:17)*(night?1.45:1)*place*(s.learned.includes('breathing')?1.3:1)*(1+s.player.insight*.015));
-          s.player.stamina-=cost;passTime(s,duration);effects(s,{qi,mana:kind==='body'?0:12});s.stats.trained++;
-          if(kind==='body'&&s.stats.trained%3===0)effects(s,{constitution:1,agility:1});
-          if(kind!=='body'&&s.stats.trained%4===0)effects(s,{insight:1});
-          G.log(s,`${kind==='meditate'?'静坐入定':kind==='body'?'淬体练步':'吐纳修炼'} ${duration} 分钟，修为 +${qi}${night?'，夜间灵气加成已生效':''}${place>1?'，听雨观灵地加成已生效':''}。`,'修炼');
-          if(G.rand(s)<Math.min(.7,.18+s.player.luck*.012))event(s,'cultivation');break;
+          must(s.player.stamina>=(kind==='meditate'?24:kind==='body'?20:12),'体力不足，请先休息。');begin(s,'cultivate',{kind});G.log(s,'开始修炼，体力消耗与修为增长随时间进行。','修炼');break;
         }
-        case 'breakthrough': {
-          const realm=G.REALMS[s.player.realm];must(realm.need>0,'你已达化神，可选择自己的归途。');must(s.player.qi>=realm.need,`还需要 ${realm.need-s.player.qi} 修为。`);must(s.player.stamina>=20,'突破需要至少 20 点体力。');
+        case 'breakthrough':{
+          const realm=s.player.realm,need=G.REALMS[realm].need;must(need>0,'已达化神。');must(s.player.qi>=need,`需要 ${need} 修为。`);must(s.player.stamina>=20,'突破需要至少 20 点体力。');
           if(payload.usePill)must((s.inventory.foundation||0)>0,'背包里没有破境丹。');
-          const chance=G.breakChance(s,!!payload.usePill);if(payload.usePill)s.inventory.foundation--;s.player.stamina-=20;passTime(s,60);
-          if(G.rand(s)*100<chance){s.player.qi-=realm.need;s.player.realm++;effects(s,{health:12,stamina:8,mana:16,insight:1,constitution:1,agility:1});G.log(s,`突破成功，踏入${G.REALMS[s.player.realm].name}。你的外卖箱还是那个外卖箱，而天地已不同。`,'破境');}
-          else {s.player.qi-=Math.floor(realm.need*.25);let protectedByCharm=(s.inventory.charm||0)>0;if(protectedByCharm)s.inventory.charm--;else s.player.health-=18;G.log(s,`突破未成，损失本阶需求的 25% 修为。${protectedByCharm?'护身符消散，护住了经脉。':'气血 -18。修行不止这一次机会。'}`,'破境');}break;
+          begin(s,'breakthrough',{realm,chance:G.breakChance(s,!!payload.usePill)});if(payload.usePill)s.inventory.foundation--;s.player.stamina-=20;s.player.qi-=need;
+          G.log(s,`开始突破，投入 ${need} 修为与 20 体力。中断不退还投入；失败将退回约 75% 修为。`,'破境');break;
         }
-        case 'alchemy': {
-          const recipe=payload.recipe==='heal'?{id:'heal',herb:1,mana:8,time:20}:{id:'qi',herb:2,mana:10,time:25};
-          must(['heal','qi'].includes(payload.recipe),'丹方不存在。');effects(s,{mana:-recipe.mana},null,{herb:recipe.herb});passTime(s,recipe.time);
-          const success=G.rand(s)<Math.min(.98,.85+s.player.insight*.01);if(success)s.inventory[recipe.id]=(s.inventory[recipe.id]||0)+1;
-          G.log(s,success?`炼成${G.ITEMS.find(i=>i.id===recipe.id).name} ×1。`:'炉火忽然一跳，药力散去。这一炉失败了，材料已消耗。','炼丹');break;
+        case 'alchemy':{
+          const recipe=payload.recipe;must(['heal','qi'].includes(recipe),'丹方不存在。');effects(s,{mana:recipe==='heal'?-8:-10},null,{herb:recipe==='heal'?1:2});begin(s,'alchemy',{recipe});G.log(s,'开始炼丹，材料与灵力已经投入，中断不返还。','炼丹');break;
         }
-        case 'explore': {
-          must(['park','temple'].includes(s.position),'请先前往月渡公园或听雨观探索。');must(s.player.stamina>=12,'探索需要 12 点体力。');s.player.stamina-=12;passTime(s,30);s.stats.explored++;if(G.rand(s)<Math.min(.45,.05+s.player.luck*.01)){s.inventory.herb=(s.inventory.herb||0)+1;G.log(s,'机缘眷顾：探索时额外发现青灵草 ×1。','机缘');}event(s,'explore');G.log(s,`在${G.place(s.position).name}探索了半小时，遇见一段未曾听说的故事。`,'探索');break;
+        case 'explore':must(['park','temple'].includes(s.position),'请先前往月渡公园或听雨观探索。');must(s.player.stamina>=12,'探索需要 12 点体力。');begin(s,'explore');G.log(s,'开始探索周围的街巷与灵息。','探索');break;
+        case 'visit':{
+          const npc=G.NPCS.find(n=>n.id===payload.id);must(npc,'人物不存在。');must(s.bonds[npc.id].met,'你还没有在旅途中结识这个人。');must(s.bonds[npc.id].lastTalkDay!==G.day(s),'今天已经深入交谈过了，明天再来吧。');begin(s,'visit',{id:npc.id},npc.place);G.log(s,`出发拜访${npc.name}。`,'拜访');break;
         }
-        case 'visit': {
-          const npc=G.NPCS.find(n=>n.id===payload.id);must(npc,'人物不存在。');const bond=s.bonds[npc.id];must(bond.met,'你还没有在旅途中结识这个人。');must(bond.lastTalkDay!==G.day(s),'今天已经深入交谈过了，明天再来吧。');move(s,npc.place);passTime(s,20);bond.lastTalkDay=G.day(s);
-          const stage=bond.stage,threshold=[0,10,24,40][stage],advanced=stage<4&&bond.affinity>=threshold;
-          if(advanced){const [title,text,...choices]=npc.arc[stage];s.pending={id:`npc-${s.turn}-${s.seed}`,kind:'social',title,text,choices:clone(choices),npcId:npc.id,npcAdvance:true,source:'classic',aiStatus:'skip'};}
-          else{s.pending={id:`npc-talk-${s.turn}-${s.seed}`,kind:'social',title:`与${npc.name}的片刻`,text:stage>=4?'你们说起最近的生活。有些关系走到后来，最珍贵的恰是这些不必特别发生的日常。':`${npc.name}问你今天过得怎么样。再多一点陪伴，也许你们就能谈起更深的往事。`,choices:[{label:'分享今天见到的小事',result:'你们聊得很开心。',effects:{affinity:5,trust:2}},{label:'认真听对方说话',result:'被倾听的感觉，让你们更亲近了一些。',effects:{affinity:4,trust:3}},{label:'带一份热饭一起吃',result:'两个人分一份热饭，也分担了一些疲惫。',effects:{money:-12,affinity:7,stamina:8}}],npcId:npc.id,npcAdvance:false,source:'classic',aiStatus:s.mode==='ai'?'unrequested':'skip'};}
-          G.log(s,`拜访${npc.name}，交谈 20 分钟。`,'拜访');break;
+        case 'charge':must(s.vehicle.battery<G.limits(s).battery-.01,'电量已满。');effects(s,{money:-8});begin(s,'charge');G.log(s,'开始原地充电，现金 -¥8，需要 30 分钟。','电动车');break;
+        case 'repair':{
+          must(s.position==='garage','请先前往修车铺维修。');const missing=G.limits(s).durability-s.vehicle.durability;must(missing>.01,'车况完好，无需维修。');const cost=Math.ceil(missing*.6)+12;effects(s,{money:-cost});begin(s,'repair');G.log(s,`开始维修，现金 -¥${cost}。`,'电动车');break;
         }
+        case 'upgrade':{
+          const kind=payload.kind;must(['speed','battery','durability'].includes(kind),'升级项目无效。');must(s.position==='garage','升级需要在修车铺进行。');must(s.vehicle.levels[kind]<5,'此项已经升至满级。');const cost=G.upgradeCost(s,kind);effects(s,{money:-cost});begin(s,'upgrade',{kind});G.log(s,`开始升级座驾，现金 -¥${cost}，需要 45 分钟。`,'电动车');break;
+        }
+        case 'heal':must(s.position==='clinic','请先前往回春医馆。');must(s.player.health<G.limits(s).health,'气血已满。');effects(s,{money:-25});begin(s,'heal');G.log(s,'开始治疗，现金 -¥25。','生活');break;
+        case 'meal':must(s.position==='market','请先前往长乐集。');effects(s,{money:-12});begin(s,'meal');G.log(s,'开始用餐，现金 -¥12。','生活');break;
         case 'buy': {
           const item=G.ITEMS.find(i=>i.id===payload.id);must(item,'兑换物不存在。');must(!item.unique||(!s.learned.includes(item.id)&&!s.equipment.includes(item.id)),'已经拥有，不能重复兑换。');must(s.player.coins>=item.cost,'外卖币不足，请先完成配送。');s.player.coins-=item.cost;
           if(item.type==='technique')s.learned.push(item.id);else if(item.type==='equipment')s.equipment.push(item.id);else s.inventory[item.id]=(s.inventory[item.id]||0)+1;
@@ -296,22 +492,6 @@
           if(payload.id==='daily'){must(!s.daily.claimed,'每日奖励已经领取。');must(s.daily.delivered>=3,'今天需要完成 3 单。');s.daily.claimed=true;effects(s,{coins:5,money:30,qi:10});G.log(s,'每日委托完成。外卖币 +5，现金 +¥30，修为 +10。','系统');}
           else{const q=G.QUESTS.find(q=>q.id===payload.id);must(q,'委托不存在。');must(!s.claimed.includes(q.id),'奖励已经领取。');must(G.questReady(s,q),'委托条件尚未达成。');s.claimed.push(q.id);effects(s,q.reward);G.log(s,`「${q.title}」：${q.story} 奖励：${G.effectText(q.reward)}。`,'主线');}break;
         }
-        case 'charge': {
-          const cap=G.limits(s);must(s.vehicle.battery<cap.battery-.01,'电量已满。');effects(s,{money:-8});passTime(s,30);s.vehicle.battery=cap.battery;G.log(s,'充电 30 分钟，现金 -¥8，电量补满。','电动车');break;
-        }
-        case 'repair': {
-          must(s.position==='garage','请先前往修车铺维修。');const cap=G.limits(s);must(s.vehicle.durability<cap.durability-.01,'车况完好，无需维修。');const cost=Math.ceil((cap.durability-s.vehicle.durability)*.6)+12;effects(s,{money:-cost});passTime(s,30);s.vehicle.durability=cap.durability;G.log(s,`维修 30 分钟，现金 -¥${cost}，车况恢复。`,'电动车');break;
-        }
-        case 'upgrade': {
-          const kind=payload.kind;must(['speed','battery','durability'].includes(kind),'升级项目无效。');must(s.position==='garage','升级需要在修车铺进行。');must(s.vehicle.levels[kind]<5,'此项已经升至满级。');const cost=G.upgradeCost(s,kind);effects(s,{money:-cost});passTime(s,45);s.vehicle.levels[kind]++;
-          if(kind==='battery')s.vehicle.battery=G.limits(s).battery;if(kind==='durability')s.vehicle.durability=G.limits(s).durability;G.log(s,`升级${{speed:'速度',battery:'电池容量',durability:'耐用性'}[kind]}至 Lv.${s.vehicle.levels[kind]}，现金 -¥${cost}。`,'电动车');break;
-        }
-        case 'heal': {
-          must(s.position==='clinic','请先前往回春医馆。');must(s.player.health<G.limits(s).health,'气血已满。');effects(s,{money:-25});passTime(s,30);s.player.health=G.limits(s).health;G.log(s,'医馆治疗 30 分钟，现金 -¥25，气血补满。','生活');break;
-        }
-        case 'meal': {
-          must(s.position==='market','请先前往长乐集。');effects(s,{money:-12,stamina:45,health:10});passTime(s,20);G.log(s,'吃了一碗热面，现金 -¥12，体力 +45，气血 +10。','生活');break;
-        }
         case 'herb': {
           must(s.position==='market','请先前往长乐集。');effects(s,{money:-15,herb:1});G.log(s,'在长乐集买到青灵草 ×1，现金 -¥15。','生活');break;
         }
@@ -319,18 +499,16 @@
           const option=G.endingOptions(s).find(e=>e.id===payload.id);must(option?.ready,'尚未达成这个结局的条件。');s.ending=option.id;if(!s.unlockedEndings.includes(option.id))s.unlockedEndings.push(option.id);G.log(s,`你选择了「${G.ENDINGS[option.id].title}」。这不是最后一段路。`,'归途');break;
         }
         case 'continue': s.ending=null;G.log(s,'故事写下了一章，你继续游历人间。','归途');break;
-        default: throw new RuleError('无法识别这个行动。');
+
+        default:throw new RuleError('无法识别这个行动。');
       }
-      normalize(s);
-      if(s.player.health<=0){s.position='clinic';s.lastRoute=null;passTime(s,180);const fee=Math.min(60,s.player.money);s.player.money-=fee;s.player.health=45;s.player.stamina=Math.max(35,s.player.stamina);G.log(s,`你在医馆醒来。有人把你送到了这里，治疗扣除 ¥${fee}。别再把自己逼得太紧。`,'救助');}
-      s.turn++;s.updatedAt=Date.now();
-      if(!['transport','continue'].includes(action))G.refreshOrders(s);
-      return {ok:true,state:s};
-    }catch(error){
-      if(error instanceof GameOverSignal){normalize(s);s.turn++;s.updatedAt=Date.now();return {ok:true,state:s};}
-      if(error instanceof RuleError)return {ok:false,state:original,error:error.message};throw error;
-    }
+      // Zero-distance follow-ups still obey the same completion path.
+      if(s.activity?.phase==='work'&&!s.activity.duration)finish(s,s.activity);
+      normalize(s);if(s.player.health<=EPS&&!s.activity&&!s.pending)beginRescue(s);
+      s.turn++;s.revision++;s.updatedAt=Date.now();return {ok:true,state:s};
+    }catch(error){if(error instanceof RuleError)return {ok:false,state:original,error:error.message};throw error;}
   };
+
   // AI 输出采用严格白名单：不会执行指令、任意代码或提供自定义结局。
   G.validateAIEvent = raw => {
     if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new RuleError('AI 事件格式无效。');
