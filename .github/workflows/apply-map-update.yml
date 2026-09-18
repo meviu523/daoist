@@ -1,0 +1,105 @@
+name: Apply verified map expansion
+
+on:
+  push:
+    branches: [feat/faster-charge-expanded-city]
+    paths:
+      - '.map-update/**'
+      - '.github/workflows/apply-map-update.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    if: github.repository == 'meviu523/daoist'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+      - name: Apply checksum-verified source edits
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, lzma
+          from pathlib import Path
+          parts = sorted(Path('.map-update').glob('part-*.xz'))
+          assert len(parts) == 4, 'Missing transfer part'
+          payload = b''.join(p.read_bytes() for p in parts)
+          assert hashlib.sha256(payload).hexdigest() == 'b3e815b866e8c05318b9aa75ca1914301d735a5cd1dc08020f73bc11fdfbc93d', 'Transfer checksum mismatch'
+          raw = lzma.decompress(payload, memlimit=128*1024*1024)
+          assert len(raw) < 500000
+          changes = json.loads(raw)
+          assert isinstance(changes, list) and len(changes) == 17
+          def blob(data):
+              return hashlib.sha1(('blob %d\0' % len(data)).encode() + data).hexdigest()
+          prepared = {}
+          for change in changes:
+              path = Path(change['path'])
+              assert not path.is_absolute() and '..' not in path.parts
+              assert path.parts[0] in {'public', 'tests', 'docs'} or str(path) in {'AGENTS.md', 'README.md', 'PROJECT_MEMORY.md', 'package.json'}
+              assert str(path) not in prepared and not path.is_symlink()
+              if change['before'] is None:
+                  assert not path.exists(), 'Unexpected existing file: ' + str(path)
+                  old = b''
+              else:
+                  old = path.read_bytes()
+                  assert blob(old) == change['before'], 'Source changed: ' + str(path)
+              text = old.decode('utf-8')
+              cursor = 0
+              for start, end, replacement in change['edits']:
+                  assert isinstance(start, int) and isinstance(end, int) and isinstance(replacement, str)
+                  assert cursor <= start <= end <= len(text)
+                  cursor = end
+              for start, end, replacement in reversed(change['edits']):
+                  text = text[:start] + replacement + text[end:]
+              data = text.encode('utf-8')
+              assert blob(data) == change['after'], 'Output checksum mismatch: ' + str(path)
+              prepared[str(path)] = data
+              print(change['after'], str(path))
+          for name, data in prepared.items():
+              path = Path(name)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(data)
+          Path('/tmp/map-paths').write_bytes(b'\0'.join(name.encode() for name in prepared) + b'\0')
+          PY
+      - name: Validate source, run tests and build
+        run: npm run check && npm test && npm run build
+      - name: Commit verified implementation to feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH='feat/faster-charge-expanded-city'
+          CURRENT=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          test "$CURRENT" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --pathspec-from-file=/tmp/map-paths --pathspec-file-nul
+          git rm -r .map-update
+          git diff --cached --check
+          git commit -m 'feat: shorten charging to 10 minutes and expand city to 99 places'
+          git push origin "HEAD:refs/heads/$BRANCH"
+      - name: Archive verified implementation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: expanded-city-source
+          retention-days: 3
+          path: |
+            public/
+            tests/
+            scripts/
+            docs/*.md
+            docs/test-results/expansion-*
+            AGENTS.md
+            README.md
+            PROJECT_MEMORY.md
+            package.json
+            server.mjs
