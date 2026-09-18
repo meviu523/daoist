@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import '../public/js/data.js';
 import '../public/js/engine.js';
 import '../public/js/storage.js';
+import '../public/js/progression.js';
 const G=globalThis.NightCourier;
 const fresh=(mode='classic',seed=987654321)=>G.newGame('云行',mode,seed);
 const run=(s,action,p={})=>{const r=G.perform(s,action,p);assert.ok(r.ok,r.error);return r.state;};
