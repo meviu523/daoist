@@ -40,7 +40,7 @@ engine.perform(旧状态, 行动, 参数)
 
 基础骑行速度 22km/h，每个速度升级 +4km/h；车况低于20时乘0.7。步行速度由身法与轻身术影响。天气的速度倍率应用于两者。
 
-出行消耗和活动本身消耗分开：睡觉是回家行程加480分钟，NPC拜访是行程加20分钟；原地修炼有其固定时长；系统兑换是0分钟。日志时间由游戏分钟数生成，不用浏览器墙钟推进游戏。
+出行消耗和活动本身消耗分开：睡觉是回家行程加480分钟，NPC拜访是行程加20分钟；原地修炼有其固定时长；充电可在任意地点直接进行，固定30分钟且不附加行程；维修与升级仍要求位于修车铺；系统兑换是0分钟。日志时间由游戏分钟数生成，不用浏览器墙钟推进游戏。
 
 `seed` 是存档的一部分。游戏事件和奖励使用状态内 xorshift 随机数；同种子、同动作得到相同分支演化，便于回归测试。ID与创建时间不属于随机事件种子。
 
@@ -51,6 +51,8 @@ engine.perform(旧状态, 行动, 参数)
 `choose` 要求传入正确事件ID和合法选项索引。选择不足以支付的成本会失败、状态不变；正确选择应用效果、推进事件额外耗时，再结算票据并清除 `pending`。事件延误可以使订单超时，导致现金降为70%、外卖币约减半（至少1币）与口碑变化，具体公式见代码。
 
 处理事件期间禁止其他世界行动。重复旧事件ID、旧订单ID或多次点击不能重发奖励。每个关键人物章节都至少有一个零金钱/灵力/道具成本的选项，避免把玩家困在强制对话里。
+
+人物采用发现制。`bonds[npc].met` 默认是 `false`：配送票据带有该地点 NPC 时，订单结算会将其设为已结识；经典随机事件可用 `encounterNpc` 在事件触发时解锁角色。应用层只渲染已结识人物，`visit` 在规则层也会拒绝未结识角色，不能靠直接构造按钮绕过。旧存档迁移时，已有好感、信任、章节进度或关系路线会推断为已结识。
 
 ## 存档结构
 
@@ -65,7 +67,7 @@ engine.perform(旧状态, 行动, 参数)
             insight, constitution, agility, luck, karma, rep },
   vehicle: { battery, durability, levels: { speed, battery, durability } },
   inventory, learned, equipment, stats,
-  bonds: { /* 每人 affinity, trust, stage, path, lastTalkDay */ },
+  bonds: { /* 每人 met, affinity, trust, stage, path, lastTalkDay */ },
   daily, claimed, unlockedEndings, ending,
   flags, recentEvents, pending, orders, logs, lastRoute
 }
