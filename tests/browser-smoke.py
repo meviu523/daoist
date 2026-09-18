@@ -44,7 +44,7 @@ CAPTURE = r'''
 const G=NightCourier;
 for(const name of ['render','updatePosition']){
  const old=G.CityMap.prototype[name];
- G.CityMap.prototype[name]=function(s){if(s)window.__live=G.clone(s);return old.call(this,s);};
+ G.CityMap.prototype[name]=function(s){if(s)window.__live=G.clone(s);window.__map=this;return old.call(this,s);};
 }
 '''
 results = []
@@ -237,6 +237,18 @@ with sync_playwright() as p:
         new_game(mobile, '行舟')
         pump(mobile, 100)
         mobile.screenshot(path=str(OUT/f'game-{width}.png'))
+        mobile.click('[data-ui="fit-map"]')
+        bounds = mobile.locator('.road-network').bounding_box()
+        viewport = mobile.locator('#city-map').bounding_box()
+        assert bounds['x'] >= viewport['x'] and bounds['x']+bounds['width'] <= viewport['x']+viewport['width']+.5
+        assert bounds['y'] >= viewport['y'] and bounds['y']+bounds['height'] <= viewport['y']+viewport['height']+.5
+        assert mobile.locator('.bridge-rails').count() == 4
+        assert mobile.locator('.district-label').all_text_contents() == ['云港新区','东湖新城','南郊生活区','灵溪山麓']
+        mobile.screenshot(path=str(OUT/f'map-overview-{width}.png'))
+        before_position = current(mobile)['position']
+        mobile.click('[data-ui="locate"]')
+        assert current(mobile)['position'] == before_position
+        record(f'{width}px 全城视图完整容纳新路网，定位及缩放不改变人物位置')
         assert mobile.evaluate('document.documentElement.scrollWidth<=innerWidth')
         for selector in ['#game-nav', '#action-bar', '.time-controls']:
             box = mobile.locator(selector).bounding_box()
@@ -260,6 +272,61 @@ with sync_playwright() as p:
         assert not merrors, merrors
         record(f'{width}px 手机视口：时间控制、行动栏、导航、面板无溢出或运行异常')
         ctx.close()
+
+    ctx, expanded, xerrors = setup(browser)
+    new_game(expanded, '新城骑手')
+    assert expanded.evaluate('NightCourier.PLACES.length') == 99
+    assert expanded.evaluate('document.querySelector(".road-network").getAttribute("d")===NightCourier.ROAD_EDGES.map(({from,to})=>{const a=NightCourier.ROAD_NODES[from],b=NightCourier.ROAD_NODES[to];return `M${a.x} ${a.y}L${b.x} ${b.y}`;}).join("")')
+    expanded.screenshot(path=str(OUT/'map-overview-1440.png'))
+    vehicle = current(expanded)['vehicle']; vehicle['battery'] = 0
+    fixture(expanded, {'vehicle': vehicle})
+    expanded.locator('.game-nav [data-panel="vehicle"]').click()
+    assert expanded.locator('[data-act="charge"]').inner_text() == '充电 · ¥8 / 10 分钟'
+    expanded.screenshot(path=str(OUT/'charge-panel.png'))
+    expanded.click('[data-act="charge"]')
+    accepted = stored(expanded)
+    assert accepted['player']['money'] == 112 and accepted['activity']['duration'] == 10
+    pump(expanded, 2000)
+    assert current(expanded)['vehicle']['battery'] == 0  # Read/save manual pause remains independent.
+    toggle(expanded); pump(expanded, 2500); toggle(expanded)
+    assert abs(stored(expanded)['vehicle']['battery']-20) < 1e-5
+    expanded.screenshot(path=str(OUT/'charging-paused.png'))
+    expanded.click('[data-ui="home"]');expanded.locator('[data-ui="load"]').first.click()
+    pump(expanded, 2000)
+    assert abs(current(expanded)['vehicle']['battery']-20) < 1e-5
+    toggle(expanded);pump(expanded, 7500);toggle(expanded)
+    assert current(expanded)['activity'] is None and abs(current(expanded)['vehicle']['battery']-80) < 1e-5
+    assert stored(expanded)['player']['money'] == 112
+    record('充电界面 10 分钟/¥8，与实际进度、暂停和多次读档一致')
+
+    # Exercise an actual new district order, not a permanent destination marker.
+    now = current(expanded)['minutes']
+    ticket = {'id':'new-zone-test','target':'lingxi-20','title':'山麓热饭','desc':'请送到门口。','condition':'ordinary','expiresAt':now+80,'reward':50,'coins':4,'npc':None}
+    fixture(expanded, {'orders':[ticket], 'activeOrder':None, 'activity':None, 'pending':None})
+    expected = expanded.evaluate('NightCourier.PLACES.filter(p=>p.permanent).length+1')
+    assert expanded.locator('.map-point').count() == expected
+    expanded.click('[data-ui="fit-map"]')
+    expanded.locator('[data-place="lingxi-20"]').focus();expanded.keyboard.press('Enter')
+    assert expanded.locator('#panel-title').inner_text() == '问山茶坊'
+    assert '山脚' in expanded.locator('.panel-body').inner_text()
+    expanded.screenshot(path=str(OUT/'new-district-order.png'))
+    expanded.click('[data-act="deliver"]')
+    money = stored(expanded)['player']['money']
+    toggle(expanded);pump(expanded, 500);toggle(expanded)
+    assert stored(expanded)['position'] is None and stored(expanded)['activity']['travelled'] > 0
+    assert stored(expanded)['player']['money'] == money
+    expanded.click('[data-ui="home"]');expanded.locator('[data-ui="load"]').first.click()
+    expanded.select_option('#time-speed', '10');toggle(expanded)
+    pump(expanded, 8000)
+    assert stored(expanded)['position'] == 'lingxi-20'
+    assert stored(expanded)['pending']['delivery']['id'] == 'new-zone-test'
+    expanded.click('[data-act="choose"][data-index="0"]')
+    assert stored(expanded)['stats']['delivered'] == 1
+    assert stored(expanded)['player']['money'] == money+50
+    assert expanded.locator('[data-place="lingxi-20"]').count() == 0
+    record('新区地址按订单显示，真实配送、途中读档和奖励结算后移除任务点')
+    assert not xerrors, xerrors
+    ctx.close()
 
     ctx, ai, aerrors = setup(browser, 1200, 900, ai=True)
     new_game(ai, '听雨', 'ai')

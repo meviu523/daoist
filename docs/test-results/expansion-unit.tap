@@ -1,0 +1,980 @@
+
+> night-courier-reborn@1.2.0 test
+> node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: 创建存档：姓名、初始时间和模式固定
+ok 1 - 创建存档：姓名、初始时间和模式固定
+  ---
+  duration_ms: 11.275715
+  type: 'test'
+  ...
+# Subtest: 拒绝空姓名、超长姓名与无效模式
+ok 2 - 拒绝空姓名、超长姓名与无效模式
+  ---
+  duration_ms: 0.656159
+  type: 'test'
+  ...
+# Subtest: 地图包含 99 个唯一地点，其中 90 个是动态配送地点、3 个住处常驻
+ok 3 - 地图包含 99 个唯一地点，其中 90 个是动态配送地点、3 个住处常驻
+  ---
+  duration_ms: 0.347808
+  type: 'test'
+  ...
+# Subtest: 同地点移动距离、时间、体力、电量全为零
+ok 4 - 同地点移动距离、时间、体力、电量全为零
+  ---
+  duration_ms: 1.507772
+  type: 'test'
+  ...
+# Subtest: 所有地点可达且路程对称
+ok 5 - 所有地点可达且路程对称
+  ---
+  duration_ms: 195.350728
+  type: 'test'
+  ...
+# Subtest: 跨江线路只能走四座实际存在的桥
+ok 6 - 跨江线路只能走四座实际存在的桥
+  ---
+  duration_ms: 42.450205
+  type: 'test'
+  ...
+# Subtest: 行程分钟由道路距离和速度计算
+ok 7 - 行程分钟由道路距离和速度计算
+  ---
+  duration_ms: 0.78983
+  type: 'test'
+  ...
+# Subtest: 升级速度会缩短同一路段骑行时间
+ok 8 - 升级速度会缩短同一路段骑行时间
+  ---
+  duration_ms: 0.886592
+  type: 'test'
+  ...
+# Subtest: 天气与步行身法会影响速度
+ok 9 - 天气与步行身法会影响速度
+  ---
+  duration_ms: 1.130635
+  type: 'test'
+  ...
+# Subtest: 零电量不能骑行，失败不改变状态
+ok 10 - 零电量不能骑行，失败不改变状态
+  ---
+  duration_ms: 2.250704
+  type: 'test'
+  ...
+# Subtest: 不足以完成整段行程的电量也不能骑行
+ok 11 - 不足以完成整段行程的电量也不能骑行
+  ---
+  duration_ms: 2.932696
+  type: 'test'
+  ...
+# Subtest: 车况为零禁止骑行
+ok 12 - 车况为零禁止骑行
+  ---
+  duration_ms: 1.189497
+  type: 'test'
+  ...
+# Subtest: 步行推车不耗电，空电仍可去修车铺
+ok 13 - 步行推车不耗电，空电仍可去修车铺
+  ---
+  duration_ms: 22.401584
+  type: 'test'
+  ...
+# Subtest: 移动结束时累计消耗、电量、路程与位置正确
+ok 14 - 移动结束时累计消耗、电量、路程与位置正确
+  ---
+  duration_ms: 3.107214
+  type: 'test'
+  ...
+# Subtest: 体力不足不产生半途移动或负体力
+ok 15 - 体力不足不产生半途移动或负体力
+  ---
+  duration_ms: 1.184567
+  type: 'test'
+  ...
+# Subtest: 行动后订单刷新，地点与 ID 不重复
+ok 16 - 行动后订单刷新，地点与 ID 不重复
+  ---
+  duration_ms: 7.871071
+  type: 'test'
+  ...
+# Subtest: 初次配送先抵达并保存事件，做选择后才发放现金和币
+ok 17 - 初次配送先抵达并保存事件，做选择后才发放现金和币
+  ---
+  duration_ms: 7.629068
+  type: 'test'
+  ...
+# Subtest: 旧订单不能重复接取、事件不能重复结算
+ok 18 - 旧订单不能重复接取、事件不能重复结算
+  ---
+  duration_ms: 3.911345
+  type: 'test'
+  ...
+# Subtest: 待处理事件期间阻止其他世界行动
+ok 19 - 待处理事件期间阻止其他世界行动
+  ---
+  duration_ms: 2.972094
+  type: 'test'
+  ...
+# Subtest: 事件 ID 不匹配不能选择
+ok 20 - 事件 ID 不匹配不能选择
+  ---
+  duration_ms: 2.724842
+  type: 'test'
+  ...
+# Subtest: 超时订单在出发前被拒绝
+ok 21 - 超时订单在出发前被拒绝
+  ---
+  duration_ms: 1.644233
+  type: 'test'
+  ...
+# Subtest: 灵异订单需要灵力，易损订单需要保留体力
+ok 22 - 灵异订单需要灵力，易损订单需要保留体力
+  ---
+  duration_ms: 1.302389
+  type: 'test'
+  ...
+# Subtest: 签到不耗时且每天只能领取一次
+ok 23 - 签到不耗时且每天只能领取一次
+  ---
+  duration_ms: 3.764153
+  type: 'test'
+  ...
+# Subtest: 连续签到在跨日后正确增长
+ok 24 - 连续签到在跨日后正确增长
+  ---
+  duration_ms: 7.480386
+  type: 'test'
+  ...
+# Subtest: 系统兑换即时生效、不移动位置且不耗时
+ok 25 - 系统兑换即时生效、不移动位置且不耗时
+  ---
+  duration_ms: 4.287256
+  type: 'test'
+  ...
+# Subtest: 外卖币不足不能兑换，不出现负数
+ok 26 - 外卖币不足不能兑换，不出现负数
+  ---
+  duration_ms: 0.847676
+  type: 'test'
+  ...
+# Subtest: 永久心法与法器按境界开放且不能重复兑换
+ok 27 - 永久心法与法器按境界开放且不能重复兑换
+  ---
+  duration_ms: 2.336267
+  type: 'test'
+  ...
+# Subtest: 物品使用消耗数量，满属性时不浪费药品
+ok 28 - 物品使用消耗数量，满属性时不浪费药品
+  ---
+  duration_ms: 5.118558
+  type: 'test'
+  ...
+# Subtest: 主线与每日委托只能领奖一次
+ok 29 - 主线与每日委托只能领奖一次
+  ---
+  duration_ms: 1.134816
+  type: 'test'
+  ...
+# Subtest: 未达到条件不发放主线奖励
+ok 30 - 未达到条件不发放主线奖励
+  ---
+  duration_ms: 1.109745
+  type: 'test'
+  ...
+# Subtest: 跨日重置每日配送数和领取状态
+ok 31 - 跨日重置每日配送数和领取状态
+  ---
+  duration_ms: 25.881164
+  type: 'test'
+  ...
+# Subtest: 夜间修炼获得更多修为，灵地额外提高收益
+ok 32 - 夜间修炼获得更多修为，灵地额外提高收益
+  ---
+  duration_ms: 27.274052
+  type: 'test'
+  ...
+# Subtest: 心法加成提高修炼收益
+ok 33 - 心法加成提高修炼收益
+  ---
+  duration_ms: 19.249007
+  type: 'test'
+  ...
+# Subtest: 破境丹改善概率但不能突破概率上限
+ok 34 - 破境丹改善概率但不能突破概率上限
+  ---
+  duration_ms: 2.193611
+  type: 'test'
+  ...
+# Subtest: 突破的成功与失败路径均会实际执行
+ok 35 - 突破的成功与失败路径均会实际执行
+  ---
+  duration_ms: 15.326996
+  type: 'test'
+  ...
+# Subtest: 护身符在突破失败时保护气血并消耗
+ok 36 - 护身符在突破失败时保护气血并消耗
+  ---
+  duration_ms: 18.62865
+  type: 'test'
+  ...
+# Subtest: 没有破境丹时不能凭参数无偿增加成功率
+ok 37 - 没有破境丹时不能凭参数无偿增加成功率
+  ---
+  duration_ms: 0.856618
+  type: 'test'
+  ...
+# Subtest: 睡觉补满体力、灵力与电量，按返家路程加睡眠计时
+ok 38 - 睡觉补满体力、灵力与电量，按返家路程加睡眠计时
+  ---
+  duration_ms: 53.847168
+  type: 'test'
+  ...
+# Subtest: 充电可在任意地点直接进行，收费且耗时
+ok 39 - 充电可在任意地点直接进行，收费且耗时
+  ---
+  duration_ms: 2.051617
+  type: 'test'
+  ...
+# Subtest: 电动车三种升级独立保存且有等级上限
+ok 40 - 电动车三种升级独立保存且有等级上限
+  ---
+  duration_ms: 77.47481
+  type: 'test'
+  ...
+# Subtest: 每七天按当前住处扣除完整房租
+ok 41 - 每七天按当前住处扣除完整房租
+  ---
+  duration_ms: 6.502131
+  type: 'test'
+  ...
+# Subtest: 房租到期现金不足时立即结束本局
+ok 42 - 房租到期现金不足时立即结束本局
+  ---
+  duration_ms: 2.0022
+  type: 'test'
+  ...
+# Subtest: 搬家使用真实路程并改变后续房租
+ok 43 - 搬家使用真实路程并改变后续房租
+  ---
+  duration_ms: 8.247229
+  type: 'test'
+  ...
+# Subtest: 不同住处的睡眠恢复不同
+ok 44 - 不同住处的睡眠恢复不同
+  ---
+  duration_ms: 87.757002
+  type: 'test'
+  ...
+# Subtest: 炼丹需要材料与灵力，不足时不消耗时间
+ok 45 - 炼丹需要材料与灵力，不足时不消耗时间
+  ---
+  duration_ms: 2.976915
+  type: 'test'
+  ...
+# Subtest: 未结识 NPC 不可直接拜访
+ok 46 - 未结识 NPC 不可直接拜访
+  ---
+  duration_ms: 0.873391
+  type: 'test'
+  ...
+# Subtest: 配送到 NPC 所在地点后解锁羁绊
+ok 47 - 配送到 NPC 所在地点后解锁羁绊
+  ---
+  duration_ms: 1.801298
+  type: 'test'
+  ...
+# Subtest: 随机配送奇遇可以结识隐藏 NPC
+ok 48 - 随机配送奇遇可以结识隐藏 NPC
+  ---
+  duration_ms: 38.081369
+  type: 'test'
+  ...
+# Subtest: 旧存档用既有关系进度推断已结识状态
+ok 49 - 旧存档用既有关系进度推断已结识状态
+  ---
+  duration_ms: 1.640086
+  type: 'test'
+  ...
+# Subtest: 人物故事在选择后推进，当天无法反复深入交谈
+ok 50 - 人物故事在选择后推进，当天无法反复深入交谈
+  ---
+  duration_ms: 3.771467
+  type: 'test'
+  ...
+# Subtest: 人物友情和情感线路由明确选择决定
+ok 51 - 人物友情和情感线路由明确选择决定
+  ---
+  duration_ms: 5.376135
+  type: 'test'
+  ...
+# Subtest: 选择需要的材料不足时不能被结算
+ok 52 - 选择需要的材料不足时不能被结算
+  ---
+  duration_ms: 2.06404
+  type: 'test'
+  ...
+# Subtest: 不满足条件不能触发结局，满足后可继续游历
+ok 53 - 不满足条件不能触发结局，满足后可继续游历
+  ---
+  duration_ms: 0.791447
+  type: 'test'
+  ...
+# Subtest: 气血降至零时触发救助而非产生不可玩状态
+ok 54 - 气血降至零时触发救助而非产生不可玩状态
+  ---
+  duration_ms: 32.695476
+  type: 'test'
+  ...
+# Subtest: AI 事件接受有界的三个选项
+ok 55 - AI 事件接受有界的三个选项
+  ---
+  duration_ms: 0.350321
+  type: 'test'
+  ...
+# Subtest: AI 拒绝越权属性、过大收益、浮点数与过多选项
+ok 56 - AI 拒绝越权属性、过大收益、浮点数与过多选项
+  ---
+  duration_ms: 0.183524
+  type: 'test'
+  ...
+# Subtest: AI 必须提供一个完全无成本选项
+ok 57 - AI 必须提供一个完全无成本选项
+  ---
+  duration_ms: 0.201898
+  type: 'test'
+  ...
+# Subtest: AI 异步结果只应用于相同且待生成的事件
+ok 58 - AI 异步结果只应用于相同且待生成的事件
+  ---
+  duration_ms: 2.972123
+  type: 'test'
+  ...
+# Subtest: AI 回退保留模式、事件和原有数值
+ok 59 - AI 回退保留模式、事件和原有数值
+  ---
+  duration_ms: 1.829923
+  type: 'test'
+  ...
+# Subtest: 已选择的事件不接受迟到的 AI 回包
+ok 60 - 已选择的事件不接受迟到的 AI 回包
+  ---
+  duration_ms: 2.610633
+  type: 'test'
+  ...
+# Subtest: 相同存档的相同行动产生相同的随机结果
+ok 61 - 相同存档的相同行动产生相同的随机结果
+  ---
+  duration_ms: 10.830648
+  type: 'test'
+  ...
+# Subtest: 待处理配送事件跨读档只能结算一次
+ok 62 - 待处理配送事件跨读档只能结算一次
+  ---
+  duration_ms: 1.888703
+  type: 'test'
+  ...
+# Subtest: NPC 待选择章节跨读档保持选项和进度
+ok 63 - NPC 待选择章节跨读档保持选项和进度
+  ---
+  duration_ms: 2.606757
+  type: 'test'
+  ...
+# Subtest: 重建版 v1 / v2 / v3 存档升级不重置人物及电动车，并默认青藤小屋
+ok 64 - 重建版 v1 / v2 / v3 存档升级不重置人物及电动车，并默认青藤小屋
+  ---
+  duration_ms: 2.141923
+  type: 'test'
+  ...
+# Subtest: 未知或未来版本不被盲目升级
+ok 65 - 未知或未来版本不被盲目升级
+  ---
+  duration_ms: 0.529022
+  type: 'test'
+  ...
+# Subtest: 导入做数值边界与字段白名单处理
+ok 66 - 导入做数值边界与字段白名单处理
+  ---
+  duration_ms: 0.621495
+  type: 'test'
+  ...
+# Subtest: JSON 中的原型字段不会污染对象
+ok 67 - JSON 中的原型字段不会污染对象
+  ---
+  duration_ms: 1.23087
+  type: 'test'
+  ...
+# Subtest: 多存档保存和读取保留彼此进度
+ok 68 - 多存档保存和读取保留彼此进度
+  ---
+  duration_ms: 2.277375
+  type: 'test'
+  ...
+# Subtest: 旧版本存储键会迁移到 v5 且保留存档
+ok 69 - 旧版本存储键会迁移到 v5 且保留存档
+  ---
+  duration_ms: 1.075647
+  type: 'test'
+  ...
+# Subtest: 导入默认新副本，不覆盖原有同 ID 存档
+ok 70 - 导入默认新副本，不覆盖原有同 ID 存档
+  ---
+  duration_ms: 1.53168
+  type: 'test'
+  ...
+# Subtest: 超过存档上限时拒绝新增而非覆盖
+ok 71 - 超过存档上限时拒绝新增而非覆盖
+  ---
+  duration_ms: 21.262557
+  type: 'test'
+  ...
+# Subtest: 主记录损坏时从上一次备份恢复，不覆盖原始损坏文本
+ok 72 - 主记录损坏时从上一次备份恢复，不覆盖原始损坏文本
+  ---
+  duration_ms: 1.080602
+  type: 'test'
+  ...
+# Subtest: 存储失败明确报告，并保留可导出的内存进度
+ok 73 - 存储失败明确报告，并保留可导出的内存进度
+  ---
+  duration_ms: 0.412841
+  type: 'test'
+  ...
+# Subtest: 完全禁止本地存储也能在当前页进行游戏
+ok 74 - 完全禁止本地存储也能在当前页进行游戏
+  ---
+  duration_ms: 0.355743
+  type: 'test'
+  ...
+# Subtest: 混合有效和损坏存档的导入具有原子性
+ok 75 - 混合有效和损坏存档的导入具有原子性
+  ---
+  duration_ms: 1.03788
+  type: 'test'
+  ...
+# Subtest: 损坏 JSON、超大文件与空包不会被导入
+ok 76 - 损坏 JSON、超大文件与空包不会被导入
+  ---
+  duration_ms: 0.279729
+  type: 'test'
+  ...
+# Subtest: 主动恢复自动备份回到上一次写入前的进度
+ok 77 - 主动恢复自动备份回到上一次写入前的进度
+  ---
+  duration_ms: 2.03988
+  type: 'test'
+  ...
+# Subtest: NPC 每一章节都有资源耗尽时仍可选的路线，避免软锁
+ok 78 - NPC 每一章节都有资源耗尽时仍可选的路线，避免软锁
+  ---
+  duration_ms: 0.573831
+  type: 'test'
+  ...
+# Subtest: 存储失败后返回菜单重新 load 不会丢失未写入的内存进度
+ok 79 - 存储失败后返回菜单重新 load 不会丢失未写入的内存进度
+  ---
+  duration_ms: 0.927483
+  type: 'test'
+  ...
+# Subtest: 成长阶段会随配送、境界和人物关系推进
+ok 80 - 成长阶段会随配送、境界和人物关系推进
+  ---
+  duration_ms: 0.554354
+  type: 'test'
+  ...
+# Subtest: 达到阈值后自动进入固定主线事件，AI 存档也不覆盖关键剧情
+ok 81 - 达到阈值后自动进入固定主线事件，AI 存档也不覆盖关键剧情
+  ---
+  duration_ms: 4.208818
+  type: 'test'
+  ...
+# Subtest: 主线标记和待选关键事件跨读档保留
+ok 82 - 主线标记和待选关键事件跨读档保留
+  ---
+  duration_ms: 4.750483
+  type: 'test'
+  ...
+# Subtest: 系统高级兑换需要境界，失败不扣外卖币
+ok 83 - 系统高级兑换需要境界，失败不扣外卖币
+  ---
+  duration_ms: 0.900131
+  type: 'test'
+  ...
+# Subtest: 新增核心人物也能通过随机奇遇被发现
+ok 84 - 新增核心人物也能通过随机奇遇被发现
+  ---
+  duration_ms: 0.168259
+  type: 'test'
+  ...
+# Subtest: 高机缘在同一组随机种子中发现更多额外材料
+ok 85 - 高机缘在同一组随机种子中发现更多额外材料
+  ---
+  duration_ms: 560.476511
+  type: 'test'
+  ...
+# Subtest: 连续游玩可送达 40 单并达成守城结局，流程无死局
+ok 86 - 连续游玩可送达 40 单并达成守城结局，流程无死局
+  ---
+  duration_ms: 811.452114
+  type: 'test'
+  ...
+# Subtest: 充电从 30 缩至 10 游戏分钟，¥8 不变，期间不瞬间补满
+ok 87 - 充电从 30 缩至 10 游戏分钟，¥8 不变，期间不瞬间补满
+  ---
+  duration_ms: 11.597618
+  type: 'test'
+  ...
+# Subtest: 半电及升级电池均按开始时缺口逐步充满
+ok 88 - 半电及升级电池均按开始时缺口逐步充满
+  ---
+  duration_ms: 6.59687
+  type: 'test'
+  ...
+# Subtest: 满电、现金不足或忙碌时充电失败不部分扣费
+ok 89 - 满电、现金不足或忙碌时充电失败不部分扣费
+  ---
+  duration_ms: 3.949375
+  type: 'test'
+  ...
+# Subtest: 道路中途可原地充电，停止只保留已充电量且不退款
+ok 90 - 道路中途可原地充电，停止只保留已充电量且不退款
+  ---
+  duration_ms: 3.48704
+  type: 'test'
+  ...
+# Subtest: 新充电行动多次读档保留精度、费用及进度，剩余时间不被再次压缩
+ok 91 - 新充电行动多次读档保留精度、费用及进度，剩余时间不被再次压缩
+  ---
+  duration_ms: 11.097801
+  type: 'test'
+  ...
+# Subtest: v5 旧 30 分钟充电按完成比例迁移，不改时间或电量、不重扣费用
+ok 92 - v5 旧 30 分钟充电按完成比例迁移，不改时间或电量、不重扣费用
+  ---
+  duration_ms: 28.336987
+  type: 'test'
+  ...
+# Subtest: 充电跨越房租到期仍先扣租，破产不执行完成回调
+ok 93 - 充电跨越房租到期仍先扣租，破产不执行完成回调
+  ---
+  duration_ms: 1.39415
+  type: 'test'
+  ...
+# Subtest: 10 分钟充电不随时间切片改变收益、随机数或订单
+ok 94 - 10 分钟充电不随时间切片改变收益、随机数或订单
+  ---
+  duration_ms: 63.778925
+  type: 'test'
+  ...
+# Subtest: 99 个路网节点与地点一一对应，新增 57 个动态地址分布于四个片区
+ok 95 - 99 个路网节点与地点一一对应，新增 57 个动态地址分布于四个片区
+  ---
+  duration_ms: 1.919901
+  type: 'test'
+  ...
+# Subtest: 全部旧地点的 ID、名称、坐标与常驻标志保持逐项兼容
+ok 96 - 全部旧地点的 ID、名称、坐标与常驻标志保持逐项兼容
+  ---
+  duration_ms: 1.139553
+  type: 'test'
+  ...
+# Subtest: 旧城区 1764 条起终点路线和距离保持不变
+ok 97 - 旧城区 1764 条起终点路线和距离保持不变
+  ---
+  duration_ms: 57.221863
+  type: 'test'
+  ...
+# Subtest: 旧城区 68 条路段中点到旧地点的 2856 条路线保持不变
+ok 98 - 旧城区 68 条路段中点到旧地点的 2856 条路线保持不变
+  ---
+  duration_ms: 59.852062
+  type: 'test'
+  ...
+# Subtest: 第四座南桥可通行，所有非桥江面位置拒绝寻路
+ok 99 - 第四座南桥可通行，所有非桥江面位置拒绝寻路
+  ---
+  duration_ms: 1.511844
+  type: 'test'
+  ...
+# Subtest: 返回路线不能修改寻路缓存，任意目的地均只沿共享道路边移动
+ok 100 - 返回路线不能修改寻路缓存，任意目的地均只沿共享道路边移动
+  ---
+  duration_ms: 256.330157
+  type: 'test'
+  ...
+# Subtest: 云港新区配送实际移动，途中读档、抵达和奖励只结算一次
+ok 101 - 云港新区配送实际移动，途中读档、抵达和奖励只结算一次
+  ---
+  duration_ms: 7.661559
+  type: 'test'
+  ...
+# Subtest: 东湖新城配送实际移动，途中读档、抵达和奖励只结算一次
+ok 102 - 东湖新城配送实际移动，途中读档、抵达和奖励只结算一次
+  ---
+  duration_ms: 6.794858
+  type: 'test'
+  ...
+# Subtest: 南郊生活区配送实际移动，途中读档、抵达和奖励只结算一次
+ok 103 - 南郊生活区配送实际移动，途中读档、抵达和奖励只结算一次
+  ---
+  duration_ms: 3.583524
+  type: 'test'
+  ...
+# Subtest: 灵溪山麓配送实际移动，途中读档、抵达和奖励只结算一次
+ok 104 - 灵溪山麓配送实际移动，途中读档、抵达和奖励只结算一次
+  ---
+  duration_ms: 5.320935
+  type: 'test'
+  ...
+# Subtest: 新区订单自然生成，保留近单且不暴露整张地图的所有任务点
+ok 105 - 新区订单自然生成，保留近单且不暴露整张地图的所有任务点
+  ---
+  duration_ms: 110.91628
+  type: 'test'
+  ...
+# Subtest: 新区远距离移动仍依据距离消耗资源，切片后与一次推进一致
+ok 106 - 新区远距离移动仍依据距离消耗资源，切片后与一次推进一致
+  ---
+  duration_ms: 50.758584
+  type: 'test'
+  ...
+# Subtest: 空闲时世界时间自行连续流逝，原状态保持不变
+ok 107 - 空闲时世界时间自行连续流逝，原状态保持不变
+  ---
+  duration_ms: 21.298959
+  type: 'test'
+  ...
+# Subtest: 拒绝非有限、负数和过大时间增量
+ok 108 - 拒绝非有限、负数和过大时间增量
+  ---
+  duration_ms: 7.109231
+  type: 'test'
+  ...
+# Subtest: 出发不跳时、不瞬移、不提前扣完整行程
+ok 109 - 出发不跳时、不瞬移、不提前扣完整行程
+  ---
+  duration_ms: 2.078875
+  type: 'test'
+  ...
+# Subtest: 移动中段坐标、时间、资源和距离同步
+ok 110 - 移动中段坐标、时间、资源和距离同步
+  ---
+  duration_ms: 2.65634
+  type: 'test'
+  ...
+# Subtest: 角色离开地点后不能使用该地点服务
+ok 111 - 角色离开地点后不能使用该地点服务
+  ---
+  duration_ms: 4.323592
+  type: 'test'
+  ...
+# Subtest: 停止后改道从实际位置出发，不回到原点
+ok 112 - 停止后改道从实际位置出发，不回到原点
+  ---
+  duration_ms: 6.262446
+  type: 'test'
+  ...
+# Subtest: 路段内虚拟起点不能从非桥位置穿江
+ok 113 - 路段内虚拟起点不能从非桥位置穿江
+  ---
+  duration_ms: 2.027104
+  type: 'test'
+  ...
+# Subtest: 停止移动不暂停世界，已接订单继续计时
+ok 114 - 停止移动不暂停世界，已接订单继续计时
+  ---
+  duration_ms: 13.03483
+  type: 'test'
+  ...
+# Subtest: 继续超时订单不重扣灵力，结算一次且降低报酬
+ok 115 - 继续超时订单不重扣灵力，结算一次且降低报酬
+  ---
+  duration_ms: 27.478592
+  type: 'test'
+  ...
+# Subtest: 不允许一人同时执行多个耗时行动
+ok 116 - 不允许一人同时执行多个耗时行动
+  ---
+  duration_ms: 1.634076
+  type: 'test'
+  ...
+# Subtest: 零耗时系统事务不会增加时间、重抽订单或推进当前行动
+ok 117 - 零耗时系统事务不会增加时间、重抽订单或推进当前行动
+  ---
+  duration_ms: 0.89499
+  type: 'test'
+  ...
+# Subtest: 休息按实际进度恢复，提前停止不会获得完整收益
+ok 118 - 休息按实际进度恢复，提前停止不会获得完整收益
+  ---
+  duration_ms: 1.941558
+  type: 'test'
+  ...
+# Subtest: 充电收费一次，逐步恢复，读档不重扣费
+ok 119 - 充电收费一次，逐步恢复，读档不重扣费
+  ---
+  duration_ms: 3.5446
+  type: 'test'
+  ...
+# Subtest: 睡觉先实际回家，旅途中不获得住宿恢复
+ok 120 - 睡觉先实际回家，旅途中不获得住宿恢复
+  ---
+  duration_ms: 57.938756
+  type: 'test'
+  ...
+# Subtest: 睡眠恢复八小时内逐步生效，保存恢复精度
+ok 121 - 睡眠恢复八小时内逐步生效，保存恢复精度
+  ---
+  duration_ms: 33.758092
+  type: 'test'
+  ...
+# Subtest: 修炼收益随昼夜边界分段计算，不在开始时锁定加成
+ok 122 - 修炼收益随昼夜边界分段计算，不在开始时锁定加成
+  ---
+  duration_ms: 1.149772
+  type: 'test'
+  ...
+# Subtest: 炼丹开始扣材料，完成前无成品；取消不退
+ok 123 - 炼丹开始扣材料，完成前无成品；取消不退
+  ---
+  duration_ms: 1.129944
+  type: 'test'
+  ...
+# Subtest: 突破修为先投入，取消不返还，不能免费反复试探结果
+ok 124 - 突破修为先投入，取消不返还，不能免费反复试探结果
+  ---
+  duration_ms: 2.06693
+  type: 'test'
+  ...
+# Subtest: 气血耗尽后救助沿道路转运，治疗不瞬间完成
+ok 125 - 气血耗尽后救助沿道路转运，治疗不瞬间完成
+  ---
+  duration_ms: 11.690716
+  type: 'test'
+  ...
+# Subtest: 第七日零点空闲状态也扣租，只扣一次
+ok 126 - 第七日零点空闲状态也扣租，只扣一次
+  ---
+  duration_ms: 1.729413
+  type: 'test'
+  ...
+# Subtest: 租金不足精确终止当前睡眠，不跳过终局继续恢复
+ok 127 - 租金不足精确终止当前睡眠，不跳过终局继续恢复
+  ---
+  duration_ms: 1.117464
+  type: 'test'
+  ...
+# Subtest: 同刻先扣租，再结算订单报酬
+ok 128 - 同刻先扣租，再结算订单报酬
+  ---
+  duration_ms: 1.217571
+  type: 'test'
+  ...
+# Subtest: 搬家途中和恰好到期时仍按旧住所扣租
+ok 129 - 搬家途中和恰好到期时仍按旧住所扣租
+  ---
+  duration_ms: 1.059386
+  type: 'test'
+  ...
+# Subtest: 倍率跨午夜也保留每日重置和房租边界
+ok 130 - 倍率跨午夜也保留每日重置和房租边界
+  ---
+  duration_ms: 0.872775
+  type: 'test'
+  ...
+# Subtest: 已接订单不会被十五分钟补单或过期清理删除
+ok 131 - 已接订单不会被十五分钟补单或过期清理删除
+  ---
+  duration_ms: 3.368789
+  type: 'test'
+  ...
+# Subtest: 未接订单在截止时移除，读取空订单不会无偿重抽
+ok 132 - 未接订单在截止时移除，读取空订单不会无偿重抽
+  ---
+  duration_ms: 1.086278
+  type: 'test'
+  ...
+# Subtest: 待选剧情冻结所有时间推进，不发放配送报酬
+ok 133 - 待选剧情冻结所有时间推进，不发放配送报酬
+  ---
+  duration_ms: 1.151883
+  type: 'test'
+  ...
+# Subtest: 耗时剧情先支付成本，结束才给收益和报酬，读档不会重付
+ok 134 - 耗时剧情先支付成本，结束才给收益和报酬，读档不会重付
+  ---
+  duration_ms: 4.505842
+  type: 'test'
+  ...
+# Subtest: 旧 v4 住处、车辆和剧情模式迁移为 v5，时间不被补算
+ok 135 - 旧 v4 住处、车辆和剧情模式迁移为 v5，时间不被补算
+  ---
+  duration_ms: 0.95669
+  type: 'test'
+  ...
+# Subtest: 途中多次读档保留小数位置、消耗和完整路线
+ok 136 - 途中多次读档保留小数位置、消耗和完整路线
+  ---
+  duration_ms: 5.204373
+  type: 'test'
+  ...
+# Subtest: 损坏路段、目的地和行动类型拒绝载入，不静默瞬移
+ok 137 - 损坏路段、目的地和行动类型拒绝载入，不静默瞬移
+  ---
+  duration_ms: 5.449771
+  type: 'test'
+  ...
+# Subtest: 等量游戏时间以不同帧率切片，路程、消耗和随机状态相同
+ok 138 - 等量游戏时间以不同帧率切片，路程、消耗和随机状态相同
+  ---
+  duration_ms: 42.157569
+  type: 'test'
+  ...
+# Subtest: 不同时间切片穿过补单和午夜，周期随机结果保持一致
+ok 139 - 不同时间切片穿过补单和午夜，周期随机结果保持一致
+  ---
+  duration_ms: 12.247
+  type: 'test'
+  ...
+# Subtest: 车况跨过低速阈值按实际时间降速，不受帧率影响
+ok 140 - 车况跨过低速阈值按实际时间降速，不受帧率影响
+  ---
+  duration_ms: 4.411893
+  type: 'test'
+  ...
+# Subtest: 车况耗尽停在路中，不能继续无车况骑行
+ok 141 - 车况耗尽停在路中，不能继续无车况骑行
+  ---
+  duration_ms: 2.057975
+  type: 'test'
+  ...
+# Subtest: 多次开关面板不能解除手动暂停
+ok 142 - 多次开关面板不能解除手动暂停
+  ---
+  duration_ms: 0.333917
+  type: 'test'
+  ...
+# Subtest: 独立暂停理由全部解除前不运行
+ok 143 - 独立暂停理由全部解除前不运行
+  ---
+  duration_ms: 0.223198
+  type: 'test'
+  ...
+# Subtest: 三种倍率同步推进整个模拟，不只改变动画速度
+ok 144 - 三种倍率同步推进整个模拟，不只改变动画速度
+  ---
+  duration_ms: 0.193666
+  type: 'test'
+  ...
+# Subtest: 暂停和恢复丢弃墙钟间隔，不累计离线时间
+ok 145 - 暂停和恢复丢弃墙钟间隔，不累计离线时间
+  ---
+  duration_ms: 0.140471
+  type: 'test'
+  ...
+# Subtest: 页面长时间卡顿自动暂停，不批量补算
+ok 146 - 页面长时间卡顿自动暂停，不批量补算
+  ---
+  duration_ms: 0.124622
+  type: 'test'
+  ...
+# Subtest: 新存储键的空列表不从旧键复活已经删除的存档
+ok 147 - 新存储键的空列表不从旧键复活已经删除的存档
+  ---
+  duration_ms: 2.825071
+  type: 'test'
+  ...
+# Subtest: HTTP 启动页和静态模块可访问，MIME 与 CSP 正确
+ok 148 - HTTP 启动页和静态模块可访问，MIME 与 CSP 正确
+  ---
+  duration_ms: 188.168451
+  type: 'test'
+  ...
+# Subtest: 健康检查不返回密钥，未配置 AI 不伪造成功
+ok 149 - 健康检查不返回密钥，未配置 AI 不伪造成功
+  ---
+  duration_ms: 93.812398
+  type: 'test'
+  ...
+# Subtest: 固定静态文件白名单阻止读取环境文件与服务端源码
+ok 150 - 固定静态文件白名单阻止读取环境文件与服务端源码
+  ---
+  duration_ms: 77.122893
+  type: 'test'
+  ...
+# Subtest: Host 校验阻止 DNS 重绑定式主机名
+ok 151 - Host 校验阻止 DNS 重绑定式主机名
+  ---
+  duration_ms: 26.976383
+  type: 'test'
+  ...
+# Subtest: 跨来源与跨站请求不能消耗 AI 配额
+ok 152 - 跨来源与跨站请求不能消耗 AI 配额
+  ---
+  duration_ms: 28.603931
+  type: 'test'
+  ...
+# Subtest: 合法同源 AI 请求通过服务端转发并校验
+ok 153 - 合法同源 AI 请求通过服务端转发并校验
+  ---
+  duration_ms: 19.163639
+  type: 'test'
+  ...
+# Subtest: AI 接口只接受 POST 和 JSON
+ok 154 - AI 接口只接受 POST 和 JSON
+  ---
+  duration_ms: 27.11237
+  type: 'test'
+  ...
+# Subtest: 超大请求和不合法剧情上下文被拒绝
+ok 155 - 超大请求和不合法剧情上下文被拒绝
+  ---
+  duration_ms: 12.2561
+  type: 'test'
+  ...
+# Subtest: AI 非法越权效果不能流入游戏
+ok 156 - AI 非法越权效果不能流入游戏
+  ---
+  duration_ms: 16.813137
+  type: 'test'
+  ...
+# Subtest: 上游错误不会向浏览器泄露密钥或原始错误正文
+ok 157 - 上游错误不会向浏览器泄露密钥或原始错误正文
+  ---
+  duration_ms: 8.103681
+  type: 'test'
+  ...
+# Subtest: 上游响应设有字节上限
+ok 158 - 上游响应设有字节上限
+  ---
+  duration_ms: 20.430578
+  type: 'test'
+  ...
+# Subtest: 每分钟超过 12 次请求触发限流
+ok 159 - 每分钟超过 12 次请求触发限流
+  ---
+  duration_ms: 98.527652
+  type: 'test'
+  ...
+# Subtest: 不安全的远程 HTTP 端点不可用，本机 HTTP 需显式授权
+ok 160 - 不安全的远程 HTTP 端点不可用，本机 HTTP 需显式授权
+  ---
+  duration_ms: 21.041812
+  type: 'test'
+  ...
+# Subtest: 非社交 AI 事件不能暗中增加人物好感
+ok 161 - 非社交 AI 事件不能暗中增加人物好感
+  ---
+  duration_ms: 18.051936
+  type: 'test'
+  ...
+1..161
+# tests 161
+# suites 0
+# pass 161
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2398.785946

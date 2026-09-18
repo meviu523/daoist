@@ -3,10 +3,22 @@
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
   G.VERSION = 5;
+  G.APP_VERSION = '1.2.0';
   G.TITLE = '外卖修仙录';
-  G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570];
-  G.GRID_Y = [120, 300, 480, 660, 840, 1020];
-  G.WORLD = { width: 1700, height: 1140, metersPerUnit: 3.5 };
+  // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
+  G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050, 2290, 2530];
+  G.GRID_Y = [120, 300, 480, 660, 840, 1020, 1200, 1380, 1560];
+  G.WORLD = { width: 2660, height: 1680, metersPerUnit: 3.5 };
+  G.CHARGE = Object.freeze({ minutes: 10, cost: 8 });
+  G.ROAD_LAYOUT = { riverColumn: 3, bridgeRows: [1, 3, 5, 7] };
+  G.ROAD_NODES = G.GRID_Y.flatMap((y,r) => G.GRID_X.map((x,c) => ({x,y,c,r})));
+  // 绘制、寻路和途中存档校验共用同一组真实道路，不另画可穿江的假路。
+  G.ROAD_EDGES = [];
+  for (const [i,a] of G.ROAD_NODES.entries()) {
+    if (a.c+1 < G.GRID_X.length && (a.c !== G.ROAD_LAYOUT.riverColumn || G.ROAD_LAYOUT.bridgeRows.includes(a.r)))
+      G.ROAD_EDGES.push({from:i,to:i+1});
+    if (a.r+1 < G.GRID_Y.length) G.ROAD_EDGES.push({from:i,to:i+G.GRID_X.length});
+  }
   const services = [
     ['home', '青藤小屋', 2, 3, 'home', '一间租来的小屋，也是你最初的洞府。'],
     ['garage', '阿默修车铺', 0, 4, 'garage', '修理、升级，以及一位总在等你收工的朋友。'],
@@ -19,9 +31,27 @@
   G.PLACES = services.map(([id, name, c, r, kind, desc]) => ({ id, name, x: G.GRID_X[c], y: G.GRID_Y[r], kind, desc, permanent: true }));
   const names = ['杏花里','松风公寓','青石弄','栖云宿舍','银杏医院','春山大厦','望江台','榆树巷','长风客栈','新桥社区','向阳小学','水岸茶室','海棠新村','北辰写字楼','龙井作坊','听潮楼','流萤公寓','南山工作室','西城花房','观星台','锦鲤小区','青禾餐厅','落霞仓库','雨巷照相馆','望舒公馆','拾光面馆','归鹤庭','白鹭驿','雁回小筑','木棉楼','竹影小院','鸣蝉里','青瓷馆','小满街','临江书院'];
   let n = 0;
+  // 旧地点编号按原来的 7×6 顺序生成，不能使用扩展后的行列数重排。
   for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) {
     const x = G.GRID_X[c], y = G.GRID_Y[r];
     if (!G.PLACES.some(p => p.x === x && p.y === y)) G.PLACES.push({ id: `stop-${n}`, name: names[n++], x, y, kind: 'delivery', permanent: false });
+  }
+  G.DISTRICTS = [
+    {id:'yunport',name:'云港新区',cols:[7,8,9,10],rows:[0,1,2],label:{x:2180,y:415},desc:'临海的新城区，夜班写字楼与远航归来的灯火相邻。',
+      names:['海岚广场','云港公寓','晨星大厦','归帆客栈','滨海医院','远航写字楼','云港夜校','澄光里','风帆小区','星洲酒店','晴海书屋','云港会展中心']},
+    {id:'eastlake',name:'东湖新城',cols:[7,8,9,10],rows:[3,4,5],label:{x:2180,y:955},desc:'湖岸社区沿水铺开，晚归的人总在等一份热饭。',
+      names:['东湖庭院','荷风里','碧波茶楼','听荷公寓','湖心美术馆','汀兰小区','东湖体育馆','朝露里','镜湖酒店','柳汀花园','水云居','望湖书院']},
+    {id:'south',name:'南郊生活区',cols:[0,1,2,3],rows:[6,7,8],label:{x:470,y:1495},desc:'夜市、学校和物流园连着老城南面的生活。',
+      names:['南郊夜市','蒲公英里','榕树公寓','青岚汽车站','稻香社区','禾下食堂','晴川小学','南郊物流园','麦田工作室','向晚小院','丰年里','南桥驿居']},
+    {id:'lingxi',name:'灵溪山麓',cols:[4,5,6,7,8,9,10],rows:[6,7,8],label:{x:1810,y:1495},desc:'山脚的茶舍与民居逐水而建，灯火一直延伸到竹林边。',
+      names:['灵溪入口','云栈民宿','青竹工坊','栖鹤村','茶山书屋','灵溪药圃','听泉山庄','清溪客舍','石桥人家','松间茶舍','半山学堂','竹海小筑','望岫台','雨后花房','归山院','流泉居','踏云亭','山南老街','听松楼','白石小院','问山茶坊']}
+  ];
+  for (const district of G.DISTRICTS) {
+    let index=0;
+    for (const r of district.rows) for (const c of district.cols) {
+      G.PLACES.push({id:`${district.id}-${index}`,name:district.names[index++],x:G.GRID_X[c],y:G.GRID_Y[r],
+        district:district.id,desc:district.desc,kind:'delivery',permanent:false});
+    }
   }
   G.place = id => G.PLACES.find(p => p.id === id);
   G.RESIDENCES = [
