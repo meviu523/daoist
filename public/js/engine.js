@@ -5,6 +5,7 @@
   const clone = x => JSON.parse(JSON.stringify(x));
   const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
   class RuleError extends Error {}
+  class GameOverSignal extends Error {}
   const must = (ok, message) => { if (!ok) throw new RuleError(message); };
   G.clone = clone;
   G.clamp = clamp;
@@ -23,7 +24,7 @@
     const id = root.crypto?.randomUUID?.() || `save-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const s = {
       schemaVersion: G.VERSION, id, name, mode, createdAt: Date.now(), updatedAt: Date.now(), seed: (Number(seed) >>> 0) || 1,
-      turn: 0, minutes: 480, position: 'home', transport: 'bike', weather: 'clear',
+      turn: 0, minutes: 480, position: 'home', residenceId: 'qingteng', gameOver: null, transport: 'bike', weather: 'clear',
       player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
       inventory: {qi:1,heal:1,stamina:1,mana:0,herb:0,fragment:0,charm:0,foundation:0}, learned: [], equipment: [],
@@ -78,18 +79,36 @@
     if (s.player.stamina < plan.stamina) return `体力不足：本次需要 ${plan.stamina}，请先休息或服用清心散。`;
     return '';
   };
+  const homeOf = s => G.residence(s.residenceId) || G.residence('qingteng') || G.RESIDENCES[0];
+  G.currentResidence = homeOf;
+  G.residenceRecoveryText = home => {
+    const names={health:'气血',stamina:'体力',mana:'灵力',battery:'电量'},parts=[];
+    for(const key of ['health','stamina','mana','battery']){
+      if(home.full.includes(key))parts.push(`${names[key]}补满`);
+      else if(home.recovery[key]>0)parts.push(`${names[key]} +${home.recovery[key]}`);
+    }
+    return parts.join(' · ') || '仅提供住宿';
+  };
   function passTime(s, minutes) {
     must(Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440, '行动时长无效。');
-    const oldDay = G.day(s); s.minutes += minutes;
-    for (let day = oldDay+1; day <= G.day(s); day++) {
+    const oldDay = G.day(s), target = s.minutes + minutes, endDay = Math.floor(target / 1440) + 1;
+    for (let day = oldDay + 1; day <= endDay; day++) {
+      s.minutes = (day - 1) * 1440;
       s.daily.day = day; s.daily.delivered = 0; s.daily.claimed = false;
       s.weather = G.WEATHER[int(s,0,G.WEATHER.length-1)].id;
       if (day % 7 === 0) {
-        const paid = Math.min(120, s.player.money); s.player.money -= paid;
-        G.log(s, `本周房租扣除 ¥${paid}${paid < 120 ? '。房东把不足的部分暂时免去了，请照顾好自己。' : '。小屋的灯仍在等你回来。'}`, '生活');
+        const home = homeOf(s);
+        if (s.player.money < home.rent) {
+          s.gameOver = { reason:'rent', day, residenceId:home.id, rent:home.rent, money:s.player.money };
+          G.log(s, `${home.name}房租到期，需要 ¥${home.rent}，但你只有 ¥${s.player.money}。你无法继续维持住处，这段旅程在这里结束。`, '结局');
+          throw new GameOverSignal();
+        }
+        s.player.money -= home.rent;
+        G.log(s, `本周${home.name}房租扣除 ¥${home.rent}。下一次房租将在第 ${day+7} 日结算。`, '生活');
       }
       G.log(s, `新的一天。天气：${G.WEATHER.find(w=>w.id===s.weather).name}。每日委托与签到已更新。`, '晨光');
     }
+    s.minutes = target;
   }
   function move(s, target) {
     const p = G.travelPlan(s,target), error = G.travelBlock(s,p); must(!error,error);
@@ -180,6 +199,7 @@
   G.perform = (original, action, payload = {}) => {
     const s=clone(original);
     try {
+      must(!s.gameOver, '这段旅程已经结束，请返回开始页创建新存档。');
       must(!s.pending || action==='choose', '请先完成当前事件的选择。');
       must(!s.ending || action==='continue', '请先选择继续游历，或返回开始页。');
       switch(action){
@@ -209,11 +229,22 @@
           G.log(s,`${c.result}（${G.effectText(c.effects)}）`,p.npcId?'羁绊':p.source==='ai'?'AI 奇遇':'奇遇');
           s.pending=null;if(p.delivery)settleDelivery(s,p.delivery);break;
         }
+        case 'moveHome': {
+          const home=G.residence(payload.id);must(home,'住处不存在。');must(home.id!==s.residenceId,'你已经住在这里。');
+          const plan=move(s,home.place);s.residenceId=home.id;
+          G.log(s,`搬入${home.name}。每七天房租 ¥${home.rent}；睡眠恢复：${G.residenceRecoveryText(home)}。${plan.minutes?`搬家路程用时 ${plan.minutes} 分钟。`:''}`,'生活');break;
+        }
         case 'rest':
           passTime(s,60);effects(s,{stamina:38,health:8,mana:10});G.log(s,'在原地歇息一小时。体力 +38，气血 +8，灵力 +10。','休息');break;
         case 'sleep': {
-          const plan=move(s,'home');passTime(s,480);const cap=G.limits(s);s.player.stamina=cap.stamina;s.player.health=Math.min(cap.health,s.player.health+45);s.player.mana=cap.mana;s.vehicle.battery=cap.battery;
-          G.log(s,`回到小屋睡了八小时${plan.minutes?`（另有路程 ${plan.minutes} 分钟）`:''}。体力、灵力与电量补满，气血恢复 45。`,'休息');break;
+          const home=homeOf(s),plan=move(s,home.place);passTime(s,480);const cap=G.limits(s);
+          for(const key of ['health','stamina','mana']){
+            if(home.full.includes(key))s.player[key]=cap[key];
+            else s.player[key]=Math.min(cap[key],s.player[key]+(home.recovery[key]||0));
+          }
+          if(home.full.includes('battery'))s.vehicle.battery=cap.battery;
+          else s.vehicle.battery=Math.min(cap.battery,s.vehicle.battery+(home.recovery.battery||0));
+          G.log(s,`在${home.name}睡了八小时${plan.minutes?`（另有路程 ${plan.minutes} 分钟）`:''}。${G.residenceRecoveryText(home)}。`,'休息');break;
         }
         case 'cultivate': {
           const kind=payload.kind||'breath';must(['breath','meditate','body'].includes(kind),'修炼方式无效。');
@@ -295,7 +326,10 @@
       s.turn++;s.updatedAt=Date.now();
       if(!['transport','continue'].includes(action))G.refreshOrders(s);
       return {ok:true,state:s};
-    }catch(error){if(error instanceof RuleError)return {ok:false,state:original,error:error.message};throw error;}
+    }catch(error){
+      if(error instanceof GameOverSignal){normalize(s);s.turn++;s.updatedAt=Date.now();return {ok:true,state:s};}
+      if(error instanceof RuleError)return {ok:false,state:original,error:error.message};throw error;
+    }
   };
   // AI 输出采用严格白名单：不会执行指令、任意代码或提供自定义结局。
   G.validateAIEvent = raw => {
