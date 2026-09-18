@@ -4,9 +4,11 @@
   const G = root.NightCourier = root.NightCourier || {};
   G.VERSION = 5;
   G.TITLE = '外卖修仙录';
-  G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570];
-  G.GRID_Y = [120, 300, 480, 660, 840, 1020];
-  G.WORLD = { width: 1700, height: 1140, metersPerUnit: 3.5 };
+  G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050];
+  G.GRID_Y = [120, 300, 480, 660, 840, 1020, 1200, 1380];
+  G.WORLD = { width: 2180, height: 1500, metersPerUnit: 3.5 };
+  G.RIVER_LEFT_COLUMN = 3;
+  G.BRIDGE_ROWS = [1, 3, 5];
   const services = [
     ['home', '青藤小屋', 2, 3, 'home', '一间租来的小屋，也是你最初的洞府。'],
     ['garage', '阿默修车铺', 0, 4, 'garage', '修理、升级，以及一位总在等你收工的朋友。'],
@@ -18,10 +20,17 @@
   ];
   G.PLACES = services.map(([id, name, c, r, kind, desc]) => ({ id, name, x: G.GRID_X[c], y: G.GRID_Y[r], kind, desc, permanent: true }));
   const names = ['杏花里','松风公寓','青石弄','栖云宿舍','银杏医院','春山大厦','望江台','榆树巷','长风客栈','新桥社区','向阳小学','水岸茶室','海棠新村','北辰写字楼','龙井作坊','听潮楼','流萤公寓','南山工作室','西城花房','观星台','锦鲤小区','青禾餐厅','落霞仓库','雨巷照相馆','望舒公馆','拾光面馆','归鹤庭','白鹭驿','雁回小筑','木棉楼','竹影小院','鸣蝉里','青瓷馆','小满街','临江书院'];
+  const expansionNames = ['云津里','东港公寓','澄江苑','星桥大厦','紫藤巷','临风里','清和社区','远山庭','鹤鸣公馆','栖霞街','新月花园','观潮驿','南渡新村','青岚科创园','云水间','晴川小筑','暮云里','白石社区','烟波庭','长明大厦','松岚巷','锦书苑','听风里','灯塔公寓','溪云街','北斗社区','荷风庭','明河里','浮光大厦','山海驿'];
   let n = 0;
+  // 先按旧 7×6 顺序生成，保证既有 stop-0…stop-34 的 ID 与坐标不变，旧存档无需迁移。
   for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) {
     const x = G.GRID_X[c], y = G.GRID_Y[r];
     if (!G.PLACES.some(p => p.x === x && p.y === y)) G.PLACES.push({ id: `stop-${n}`, name: names[n++], x, y, kind: 'delivery', permanent: false });
+  }
+  let extra = 0;
+  for (let r = 0; r < G.GRID_Y.length; r++) for (let c = 0; c < G.GRID_X.length; c++) {
+    const x = G.GRID_X[c], y = G.GRID_Y[r];
+    if (!G.PLACES.some(p => p.x === x && p.y === y)) G.PLACES.push({ id: `stop-${n++}`, name: expansionNames[extra++] || `青岚新区 ${extra}`, x, y, kind: 'delivery', permanent: false });
   }
   G.place = id => G.PLACES.find(p => p.id === id);
   G.RESIDENCES = [
