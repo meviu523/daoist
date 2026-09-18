@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 5;
+  G.VERSION = 6;
   G.TITLE = '外卖修仙录';
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050];
   G.GRID_Y = [120, 300, 480, 660, 840, 1020, 1200, 1380];
@@ -162,6 +162,21 @@
     {id:'lightstep',name:'轻身诀',type:'technique',cost:20,desc:'永久学会：步行速度提高 30%。',glyph:'步',unique:true},
     {id:'jade',name:'纳灵玉佩',type:'equipment',cost:25,desc:'自动装备，灵力上限 +30。',glyph:'佩',unique:true},
     {id:'robe',name:'青云法衣',type:'equipment',cost:24,desc:'自动装备，气血上限 +25。',glyph:'衣',unique:true}
+  ];
+  G.CAULDRONS = [
+    { level:0, name:'无药鼎', cost:0, success:0, extra:0, realm:0, desc:'需要先在长乐集购买药鼎，才能开始炼药。' },
+    { level:1, name:'青铜药鼎', cost:160, success:0, extra:.04, realm:0, desc:'入门药鼎。能稳定聚拢药性，开启炼药师道路。' },
+    { level:2, name:'赤铜温灵鼎', cost:320, success:.06, extra:.10, realm:1, desc:'炉温更稳，成丹率提高，并更容易一炉得双药。' },
+    { level:3, name:'玄铁聚火鼎', cost:620, success:.12, extra:.18, realm:2, desc:'聚火锁灵，显著提高高阶丹药的稳定性与额外产出。' }
+  ];
+  G.ALCHEMY_RANKS = [
+    { name:'药童', need:0 }, { name:'识药', need:4 }, { name:'掌火', need:10 }, { name:'炼药师', need:20 }, { name:'丹师', need:40 }
+  ];
+  G.ALCHEMY_RECIPES = [
+    { id:'heal', name:'回春丹', herbs:1, mana:8, duration:20, base:.72, need:0, realm:0, desc:'恢复气血的基础丹药。' },
+    { id:'stamina', name:'清心散', herbs:1, mana:7, duration:18, base:.75, need:2, realm:0, desc:'调息解乏，恢复体力。' },
+    { id:'qi', name:'凝气丹', herbs:2, mana:10, duration:25, base:.68, need:5, realm:0, desc:'凝聚灵气，服用后增长修为。' },
+    { id:'foundation', name:'破境丹', herbs:4, mana:20, duration:40, base:.58, need:16, realm:1, desc:'熟练炼药师才能尝试的破境丹。' }
   ];
   G.QUESTS = [
     {id:'q1',title:'第一份人间烟火',desc:'完成 1 单配送',delivery:1,realm:0,reward:{coins:5,qi:15},story:'系统不是凭空赐予力量。它把你送达的每一份善意，折成可以带走的光。'},
