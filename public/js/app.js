@@ -127,7 +127,17 @@
         body+=`<div class="section-title"><h3>心法与装备</h3></div><div class="stack">${[...s.learned,...s.equipment].map(id=>{const i=G.ITEMS.find(i=>i.id===id);return `<div class="card"><h3>${i.name} <span class="tag mint">已生效</span></h3><p class="copy">${i.desc}</p></div>`;}).join('')||'<p class="copy">还没有习得心法或装备法器。</p>'}</div>`;break;
       }
       case 'bonds':{
-        title='灯火里的故人';label='People you meet';{const known=G.NPCS.filter(n=>s.bonds[n.id]?.met);body=known.length?`<div class="stack">${known.map(n=>{const b=s.bonds[n.id],travel=G.travelPlan(s,n.place),blocked=b.lastTalkDay===G.day(s)||!!G.travelBlock(s,travel);return `<article class="npc-card" style="--npc-color:${n.color}"><div class="row"><div class="npc-avatar">${n.name[0]}</div><div><h3>${n.name}</h3><small>${n.role} · ${G.place(n.place).name}</small></div><span class="tag" style="margin-left:auto">${b.path==='romance'?'相伴':b.stage>=4?'知己':b.stage>0?'相识':'初见'}</span></div><p>${n.bio}</p><div class="progress-label"><span>好感 ${b.affinity} · 信任 ${b.trust}</span><span>故事 ${b.stage}/4</span></div><div class="wide-progress"><i style="width:${b.affinity}%"></i></div><div class="npc-footer"><small>行程 ${travel.minutes} 分钟 · 交谈 20 分钟</small>${btn(b.lastTalkDay===G.day(s)?'明天再见':'去见一面',`data-act="visit" data-id="${n.id}"${disabled(blocked)}`,'small')}</div>${blocked&&b.lastTalkDay!==G.day(s)?`<p class="copy">${esc(G.travelBlock(s,travel))}</p>`:''}</article>`;}).join('')}</div>`:'<div class="empty">旅途才刚开始。完成配送、经历奇遇，会逐渐认识这座城里的人。</div>';}foot='只有真正遇见过的人才会出现在这里。关系由选择推进，友情与情感路线不会自动替你决定。';break;
+        title='灯火里的故人';label='People you meet';
+        const known=G.NPCS.filter(n=>s.bonds[n.id]?.met);
+        if(!known.length)body='<div class="empty">旅途才刚开始。完成配送、经历奇遇，会逐渐认识这座城里的人。</div>';
+        else{
+          const cards=known.map(n=>{
+            const b=s.bonds[n.id],travel=G.travelPlan(s,n.place),blocked=b.lastTalkDay===G.day(s)||!!G.travelBlock(s,travel);
+            return `<article class="npc-card" style="--npc-color:${n.color}"><div class="row"><div class="npc-avatar">${n.name[0]}</div><div><h3>${n.name}</h3><small>${n.role} · ${G.place(n.place).name}</small></div><span class="tag" style="margin-left:auto">${b.path==='romance'?'相伴':b.stage>=4?'知己':b.stage>0?'相识':'初见'}</span></div><p>${n.bio}</p><div class="progress-label"><span>好感 ${b.affinity} · 信任 ${b.trust}</span><span>故事 ${b.stage}/4</span></div><div class="wide-progress"><i style="width:${b.affinity}%"></i></div><div class="npc-footer"><small>行程 ${travel.minutes} 分钟 · 交谈 20 分钟</small>${btn(b.lastTalkDay===G.day(s)?'明天再见':'去见一面',`data-act="visit" data-id="${n.id}"${disabled(blocked)}`,'small')}</div>${blocked&&b.lastTalkDay!==G.day(s)?`<p class="copy">${esc(G.travelBlock(s,travel))}</p>`:''}</article>`;
+          }).join('');
+          body=`<div class="stack">${cards}</div>`;
+        }
+        foot='只有真正遇见过的人才会出现在这里。关系由选择推进，友情与情感路线不会自动替你决定。';break;
       }
       case 'vehicle':{
         title='陪你走过每一程';label='Your electric companion';const atGarage=s.position==='garage',repairCost=Math.ceil((c.durability-s.vehicle.durability)*.6)+12;
