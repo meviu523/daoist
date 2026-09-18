@@ -170,8 +170,11 @@
     s.vehicle.battery = clamp(s.vehicle.battery,0,caps.battery); s.vehicle.durability = clamp(s.vehicle.durability,0,caps.durability);
     for (const bond of Object.values(s.bonds)) {bond.affinity=clamp(bond.affinity,0,100);bond.trust=clamp(bond.trust,0,100);}
   }
+  G.ORDER_OFFER_MINUTES = Object.freeze({urgent:18,ordinary:36,careful:42,night:30,mystic:32});
+  G.orderOfferLifetime = order => G.ORDER_OFFER_MINUTES[order?.condition] || G.ORDER_OFFER_MINUTES.ordinary;
+  G.orderOfferRemaining = (s,order) => Math.max(0,(order?.expiresAt ?? s.minutes)-s.minutes);
   G.refreshOrders = s => {
-    // 只补空缺，已接票据独立保存；零耗时事务不刷新或重抽订单。
+    // expiresAt 为未接订单从地图消失的时间；接单后不再作为送达时限。
     s.orders=s.orders.filter(o=>o.expiresAt>s.minutes+EPS&&o.id!==s.activeOrder?.id);
     const used=new Set([...s.orders.map(o=>o.target),s.activeOrder?.target]);
     const pool=G.PLACES.filter(p=>p.id!==s.position&&!used.has(p.id));
@@ -183,7 +186,7 @@
       const available=G.ORDER_TYPES.filter(t=>(t.condition!=='night'||G.isNight(s))&&(t.condition!=='mystic'||s.player.realm>=1));
       const type=available[int(s,0,available.length-1)],plan=G.travelPlan(s,place.id);
       s.orders.push({id:`o-${s.turn}-${i}-${s.seed}`,target:place.id,title:type.title,desc:type.desc,condition:type.condition,
-        expiresAt:s.minutes+Math.ceil(plan.minutes)+int(s,type.condition==='urgent'?3:7,type.condition==='urgent'?8:20),
+        expiresAt:s.minutes+G.orderOfferLifetime(type),
         reward:Math.round(12+plan.km*6+type.tip+Math.max(0,s.player.rep)*.08),coins:Math.min(6,2+Math.floor(plan.km/1.5)),
         npc:G.NPCS.find(n=>n.place===place.id)?.id||null});
     }
@@ -202,11 +205,11 @@
     s.pending={...clone(base),id:`event-${s.turn}-${s.seed}`,templateId:base.id,source:'classic',aiStatus:s.mode==='ai' && base.id!=='first-order'?'unrequested':'skip',...overrides};
   }
   function settleDelivery(s, ticket) {
-    const late=s.minutes>ticket.expiresAt, reward=Math.floor(ticket.reward*(late?.7:1)), coins=late?Math.max(1,Math.floor(ticket.coins*.5)):ticket.coins;
+    const reward=ticket.reward,coins=ticket.coins;
     s.player.money+=reward;s.player.coins+=coins;s.stats.earned+=reward;s.stats.delivered++;s.daily.delivered++;
-    s.player.rep=clamp(s.player.rep+(late?-1:1),-50,100);
+    s.player.rep=clamp(s.player.rep+1,-50,100);
     if(ticket.npc){const bond=s.bonds[ticket.npc];const npc=G.NPCS.find(n=>n.id===ticket.npc);if(!bond.met){bond.met=true;if(npc)G.log(s,`这一单让你第一次正式结识${npc.name}。对方已出现在「羁绊」中。`,'相逢');}bond.affinity=clamp(bond.affinity+3,0,100);}
-    G.log(s, `送达「${ticket.title}」至${G.place(ticket.target).name}。现金 +¥${reward}，外卖币 +${coins}${late?'；已超时，报酬下调。':'。'}`, '配送');
+    G.log(s, `送达「${ticket.title}」至${G.place(ticket.target).name}。现金 +¥${reward}，外卖币 +${coins}。`, '配送');
   }
   G.breakChance = (s, usePill=false) => clamp(53+s.player.insight*2+Math.max(0,s.player.karma)*.12+(G.isNight(s)?10:0)+(usePill?15:0)-s.player.realm*3-(G.realmLevel(s)-1)*1.25,35,95);
   G.upgradeCost = (s, kind) => 90 + (s.vehicle.levels[kind]||0)*85;
@@ -462,14 +465,14 @@
           begin(s,'travel',{},payload.target);G.log(s,`出发前往${G.place(payload.target).name}。`,'出行');break;
         case 'deliver':{
           must(!s.activeOrder,'已有未完成订单，请继续配送或明确取消。');
-          const ticket=s.orders.find(o=>o.id===payload.id);must(ticket,'这张订单已经失效，请重新查看地图。');
+          const ticket=s.orders.find(o=>o.id===payload.id);must(ticket,'这张订单已经从地图消失，请重新查看。');
+          must(ticket.expiresAt>s.minutes+EPS,'这张订单已经从地图消失，请重新查看。');
           const plan=G.travelPlan(s,ticket.target),block=G.travelBlock(s,plan);must(!block,block);
-          must(s.minutes+plan.minutes<=ticket.expiresAt+EPS&&s.minutes<ticket.expiresAt,'按当前出行方式无法在时限内抵达。');
           if(ticket.condition==='mystic')must(s.player.mana>=8,'灵异订单需要至少 8 点灵力。');
           if(ticket.condition==='careful')must(s.player.stamina-plan.stamina>=10,'易损餐品需要抵达时仍有至少 10 点体力。');
           begin(s,'deliver',{},ticket.target);s.activeOrder=clone(ticket);s.orders=s.orders.filter(o=>o.id!==ticket.id);
           if(ticket.condition==='mystic')s.player.mana-=8;
-          G.log(s,`接下「${ticket.title}」，正前往${G.place(ticket.target).name}。送达并处理事件后才结算报酬。`,'接单');break;
+          G.log(s,`接下「${ticket.title}」，正前往${G.place(ticket.target).name}。订单已锁定，不再受地图消失时间影响；送达并处理事件后才结算报酬。`,'接单');break;
         }
         case 'resumeDelivery':
           must(s.activeOrder,'没有待配送的订单。');begin(s,'deliver',{},s.activeOrder.target);G.log(s,'继续配送当前订单。','接单');break;
