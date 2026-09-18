@@ -14,7 +14,22 @@
   G.timestamp = m => `第${Math.floor(m / 1440) + 1}日 ${String(Math.floor(m % 1440 / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
   G.rand = s => { let x = s.seed >>> 0 || 1; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; s.seed = x >>> 0; return s.seed / 4294967296; };
   const int = (s, min, max) => Math.floor(G.rand(s) * (max - min + 1)) + min;
-  G.limits = s => ({ health: 100 + s.player.realm * 12 + (s.equipment.includes('robe') ? 25 : 0), stamina: 100 + s.player.realm * 8, mana: 60 + s.player.realm * 16 + (s.equipment.includes('jade') ? 30 : 0), battery: 80 + s.vehicle.levels.battery * 35, durability: 100 + s.vehicle.levels.durability * 30 });
+  G.realmLevel = s => clamp(Number(s.player.realmLevel)||1,1,G.REALM_LEVELS.length);
+  G.realmRank = s => s.player.realm*G.REALM_LEVELS.length+(G.realmLevel(s)-1);
+  G.realmLabel = s => `${G.REALMS[s.player.realm]?.name||'凡人'}${G.REALM_LEVELS[G.realmLevel(s)-1]}`;
+  G.realmAtMax = s => s.player.realm===G.REALMS.length-1&&G.realmLevel(s)===G.REALM_LEVELS.length;
+  G.realmNeed = s => {
+    if(G.realmAtMax(s))return 0;
+    const total=G.REALMS[s.player.realm]?.need||0,level=G.realmLevel(s);
+    return Math.max(1,Math.round(total*(5+level)/90));
+  };
+  G.nextRealmLabel = s => {
+    if(G.realmAtMax(s))return null;
+    const level=G.realmLevel(s);
+    if(level<G.REALM_LEVELS.length)return `${G.REALMS[s.player.realm].name}${G.REALM_LEVELS[level]}`;
+    return `${G.REALMS[s.player.realm+1].name}${G.REALM_LEVELS[0]}`;
+  };
+  G.limits = s => {const rank=G.realmRank(s);return { health: 100 + Math.floor(rank*12/9) + (s.equipment.includes('robe') ? 25 : 0), stamina: 100 + Math.floor(rank*8/9), mana: 60 + Math.floor(rank*16/9) + (s.equipment.includes('jade') ? 30 : 0), battery: 80 + s.vehicle.levels.battery * 35, durability: 100 + s.vehicle.levels.durability * 30 };};
   G.log = (s, text, tag = '日常') => { s.logs.push({ id: `${s.turn}-${s.logs.length}-${s.seed}`, at: s.minutes, tag, text: String(text).slice(0, 600) }); s.logs = s.logs.slice(-180); };
   G.newGame = (name, mode = 'classic', seed = Date.now()) => {
     name = String(name).trim();
@@ -24,9 +39,10 @@
     const s = {
       schemaVersion: G.VERSION, id, name, mode, createdAt: Date.now(), updatedAt: Date.now(), seed: (Number(seed) >>> 0) || 1,
       turn: 0, minutes: 480, position: 'home', residenceId: 'qingteng', gameOver: null, transport: 'bike', weather: 'clear',
-      player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
+      player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, realmLevel: 1, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
       inventory: {qi:1,heal:1,stamina:1,mana:0,herb:0,fragment:0,charm:0,foundation:0}, learned: [], equipment: [],
+      alchemy: {cauldron:0,xp:0,brews:0,successes:0},
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
       daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], ending: null,
@@ -108,6 +124,16 @@
     return '';
   };
   G.durationText = minutes => `${Math.max(0,Math.ceil(minutes-EPS))} 分钟`;
+  G.cauldron = s => G.CAULDRONS[s.alchemy?.cauldron || 0] || G.CAULDRONS[0];
+  G.alchemyRank = s => {
+    const xp=s.alchemy?.xp||0;let rank=0;
+    for(let i=0;i<G.ALCHEMY_RANKS.length;i++)if(xp>=G.ALCHEMY_RANKS[i].need)rank=i;
+    return rank;
+  };
+  G.alchemyRecipe = id => G.ALCHEMY_RECIPES.find(r=>r.id===id);
+  G.alchemyUnlocked = (s,recipe) => !!recipe && s.player.realm>=recipe.realm && (s.alchemy?.xp||0)>=recipe.need;
+  G.alchemyChance = (s,recipe) => clamp(recipe.base+s.player.insight*.008+G.cauldron(s).success+G.alchemyRank(s)*.02,.25,.98);
+  G.alchemyExtraChance = s => clamp(G.cauldron(s).extra+G.alchemyRank(s)*.025,0,.55);
   const homeOf = s => G.residence(s.residenceId) || G.residence('qingteng') || G.RESIDENCES[0];
   G.currentResidence = homeOf;
   G.residenceRecoveryText = home => {
@@ -213,7 +239,7 @@
     return point(route.points.at(-1));
   };
   const workDuration = (kind,p={}) => ({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:G.CHARGE.minutes,repair:30,upgrade:45,heal:30,meal:20,rescue:180,
-    cultivate:p.kind==='meditate'?90:p.kind==='body'?30:45,alchemy:p.recipe==='heal'?20:25,choice:p.duration||0})[kind]||0;
+    cultivate:p.kind==='meditate'?90:p.kind==='body'?30:45,alchemy:G.alchemyRecipe(p.recipe)?.duration||0,choice:p.duration||0})[kind]||0;
   function startWork(s,a){
     a.phase='work';a.elapsed=0;a.recovery={};
     const cap=G.limits(s);
@@ -286,14 +312,21 @@
         G.log(s,`修炼 ${a.duration} 分钟完成，修为 +${a.gainedQi.toFixed(1)}。昼夜与灵地加成按实际修炼时段计算。`,'修炼');
         if(G.rand(s)<Math.min(.7,.18+s.player.luck*.012))event(s,'cultivation');break;
       case 'breakthrough':{
-        const need=G.REALMS[a.params.realm].need;
-        if(G.rand(s)*100<a.params.chance){s.player.realm++;effects(s,{health:12,stamina:8,mana:16,insight:1,constitution:1,agility:1});G.log(s,`突破成功，踏入${G.REALMS[s.player.realm].name}。`,'破境');}
-        else{s.player.qi+=need-Math.floor(need*.25);const protectedByCharm=(s.inventory.charm||0)>0;if(protectedByCharm)s.inventory.charm--;else s.player.health-=18;G.log(s,`突破未成，退回 75% 左右修为。${protectedByCharm?'护身符消散，护住经脉。':'气血 -18。'}`,'破境');}break;
+        const need=a.params.need;
+        if(G.rand(s)*100<a.params.chance){
+          const major=G.realmLevel(s)===G.REALM_LEVELS.length;
+          if(major){s.player.realm++;s.player.realmLevel=1;effects(s,{health:12,stamina:8,mana:16,insight:1,constitution:1,agility:1});G.log(s,`大境突破成功，踏入${G.realmLabel(s)}。`,'破境');}
+          else{s.player.realmLevel++;effects(s,{health:2,stamina:1,mana:2});G.log(s,`突破成功，修为稳固至${G.realmLabel(s)}。`,'破境');}
+        }else{s.player.qi+=need-Math.floor(need*.25);const protectedByCharm=(s.inventory.charm||0)>0;if(protectedByCharm)s.inventory.charm--;else s.player.health-=18;G.log(s,`突破未成，退回 75% 左右修为。${protectedByCharm?'护身符消散，护住经脉。':'气血 -18。'}`,'破境');}break;
       }
       case 'alchemy':{
-        const success=G.rand(s)<Math.min(.98,.85+s.player.insight*.01),id=a.params.recipe;
-        if(success)s.inventory[id]=(s.inventory[id]||0)+1;
-        G.log(s,success?`炼成${G.ITEMS.find(i=>i.id===id).name} ×1。`:'炉火忽然一跳，药力散去。这一炉失败了，材料已消耗。','炼丹');break;
+        const recipe=G.alchemyRecipe(a.params.recipe),success=G.rand(s)<G.alchemyChance(s,recipe);
+        s.alchemy.brews++;
+        s.alchemy.xp+=success?2:1;
+        let count=0;
+        if(success){count=1;if(G.rand(s)<G.alchemyExtraChance(s))count++;s.inventory[recipe.id]=(s.inventory[recipe.id]||0)+count;s.alchemy.successes++;}
+        const rank=G.ALCHEMY_RANKS[G.alchemyRank(s)].name;
+        G.log(s,success?`以${G.cauldron(s).name}炼成${recipe.name} ×${count}。炼药熟练度 ${s.alchemy.xp}，当前 ${rank}。`:`这一炉${recipe.name}火候失衡，药力散去。材料已消耗；炼药熟练度 +1。`,'炼药');break;
       }
       case 'explore':
         s.stats.explored++;if(G.rand(s)<Math.min(.45,.05+s.player.luck*.01)){s.inventory.herb=(s.inventory.herb||0)+1;G.log(s,'探索时额外发现青灵草 ×1。','机缘');}
@@ -324,7 +357,7 @@
   function beginRescue(s){
     begin(s,'rescue',{},'clinic');G.log(s,'你倒在路边。路人正沿道路将你送往医馆，随后需要治疗三小时。','救助');
   }
-  G.activityLabel = a => ({travel:'赶路',deliver:'配送',moveHome:'搬家',sleep:'睡眠',visit:'交谈',rest:'休息',cultivate:'修炼',breakthrough:'突破',alchemy:'炼丹',explore:'探索',charge:'充电',repair:'维修',upgrade:'升级座驾',heal:'治疗',meal:'用餐',choice:'处理事件',rescue:'救助'})[a?.kind]||'原地停留';
+  G.activityLabel = a => ({travel:'赶路',deliver:'配送',moveHome:'搬家',sleep:'睡眠',visit:'交谈',rest:'休息',cultivate:'修炼',breakthrough:'突破',alchemy:'炼药',explore:'探索',charge:'充电',repair:'维修',upgrade:'升级座驾',heal:'治疗',meal:'用餐',choice:'处理事件',rescue:'救助'})[a?.kind]||'原地停留';
   G.activityRemaining = s => {
     const a=s.activity;if(!a)return 0;
     return a.phase==='travel'?(a.route.meters-a.travelled)/(a.kind==='rescue'?500:G.movementRates(s).metersPerMinute)+a.duration:Math.max(0,a.duration-a.elapsed);
@@ -464,13 +497,14 @@
           must(s.player.stamina>=(kind==='meditate'?24:kind==='body'?20:12),'体力不足，请先休息。');begin(s,'cultivate',{kind});G.log(s,'开始修炼，体力消耗与修为增长随时间进行。','修炼');break;
         }
         case 'breakthrough':{
-          const realm=s.player.realm,need=G.REALMS[realm].need;must(need>0,'已达化神。');must(s.player.qi>=need,`需要 ${need} 修为。`);must(s.player.stamina>=20,'突破需要至少 20 点体力。');
+          const realm=s.player.realm,realmLevel=G.realmLevel(s),need=G.realmNeed(s);must(need>0,'已达化神九重。');must(s.player.qi>=need,`需要 ${need} 修为。`);must(s.player.stamina>=20,'突破需要至少 20 点体力。');
           if(payload.usePill)must((s.inventory.foundation||0)>0,'背包里没有破境丹。');
-          begin(s,'breakthrough',{realm,chance:G.breakChance(s,!!payload.usePill)});if(payload.usePill)s.inventory.foundation--;s.player.stamina-=20;s.player.qi-=need;
-          G.log(s,`开始突破，投入 ${need} 修为与 20 体力。中断不退还投入；失败将退回约 75% 修为。`,'破境');break;
+          begin(s,'breakthrough',{realm,realmLevel,need,chance:G.breakChance(s,!!payload.usePill)});if(payload.usePill)s.inventory.foundation--;s.player.stamina-=20;s.player.qi-=need;
+          G.log(s,`开始从${G.realmLabel(s)}突破至${G.nextRealmLabel(s)}，投入 ${need} 修为与 20 体力。中断不退还投入；失败将退回约 75% 修为。`,'破境');break;
         }
         case 'alchemy':{
-          const recipe=payload.recipe;must(['heal','qi'].includes(recipe),'丹方不存在。');effects(s,{mana:recipe==='heal'?-8:-10},null,{herb:recipe==='heal'?1:2});begin(s,'alchemy',{recipe});G.log(s,'开始炼丹，材料与灵力已经投入，中断不返还。','炼丹');break;
+          const recipe=G.alchemyRecipe(payload.recipe);must(recipe,'丹方不存在。');must((s.alchemy?.cauldron||0)>0,'还没有药鼎。请先到长乐集购买药鼎。');must(G.alchemyUnlocked(s,recipe),`炼药熟练度或境界不足，暂未掌握${recipe.name}。`);
+          effects(s,{mana:-recipe.mana},null,{herb:recipe.herbs});begin(s,'alchemy',{recipe:recipe.id});G.log(s,`以${G.cauldron(s).name}开始炼制${recipe.name}。灵草 ×${recipe.herbs}、灵力 -${recipe.mana} 已投入，中断不返还。`,'炼药');break;
         }
         case 'explore':must(['park','temple'].includes(s.position),'请先前往月渡公园或听雨观探索。');must(s.player.stamina>=12,'探索需要 12 点体力。');begin(s,'explore');G.log(s,'开始探索周围的街巷与灵息。','探索');break;
         case 'visit':{
@@ -503,6 +537,11 @@
         }
         case 'herb': {
           must(s.position==='market','请先前往长乐集。');effects(s,{money:-15,herb:1});G.log(s,'在长乐集买到青灵草 ×1，现金 -¥15。','生活');break;
+        }
+        case 'cauldron': {
+          must(s.position==='market','药鼎要在长乐集购买或升级。');
+          const next=(s.alchemy?.cauldron||0)+1,item=G.CAULDRONS[next];must(item,'药鼎已经升到最高阶。');must(s.player.realm>=item.realm,`需要进入${G.REALMS[item.realm].name}后才能驾驭${item.name}。`);must(s.player.money>=item.cost,`购买${item.name}需要 ¥${item.cost}。`);
+          s.player.money-=item.cost;s.alchemy.cauldron=next;G.log(s,`在长乐集购入${item.name}，现金 -¥${item.cost}。炼药成丹率与额外产出得到提升。`,'炼药');break;
         }
         case 'finale': {
           const option=G.endingOptions(s).find(e=>e.id===payload.id);must(option?.ready,'尚未达成这个结局的条件。');s.ending=option.id;if(!s.unlockedEndings.includes(option.id))s.unlockedEndings.push(option.id);G.log(s,`你选择了「${G.ENDINGS[option.id].title}」。这不是最后一段路。`,'归途');break;
