@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v6';
-  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v5';
-  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v4','night-courier:saves:v3'];
+  G.STORAGE_KEY = 'night-courier:saves:v7';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v6';
+  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -34,7 +34,7 @@
     return clean;
   }
 
-  function cleanActivity(raw,s){
+  function cleanActivity(raw,s,version=G.VERSION){
     const kinds=['travel','deliver','moveHome','sleep','visit','rest','cultivate','breakthrough','alchemy','explore','charge','repair','upgrade','heal','meal','choice','rescue'];
     if(!obj(raw)||!kinds.includes(raw.kind)||!['travel','work'].includes(raw.phase))throw new Error('进行中的行动格式无效。');
     const kind=raw.kind,p=obj(raw.params)?raw.params:{},params={};
@@ -55,8 +55,11 @@
       if(!['speed','battery','durability'].includes(p.kind)||s.vehicle.levels[p.kind]>=5)throw new Error('升级行动无效。');params.kind=p.kind;
     }
     if(kind==='breakthrough'){
-      if(p.realm!==s.player.realm||!G.REALMS[p.realm]?.need)throw new Error('突破境界与存档不一致。');
-      params.realm=p.realm;params.chance=num(p.chance,53,35,95,false);
+      const level=num(p.realmLevel,s.player.realmLevel,1,G.REALM_LEVELS.length);
+      if(p.realm!==s.player.realm||level!==s.player.realmLevel||G.realmAtMax(s))throw new Error('突破境界与存档不一致。');
+      const expected=version<7?G.REALMS[p.realm]?.need:G.realmNeed(s);
+      params.realm=p.realm;params.realmLevel=level;params.need=num(p.need,expected,1,999999,false);params.chance=num(p.chance,53,35,95,false);
+      if(version>=7&&Math.abs(params.need-G.realmNeed(s))>1e-8)throw new Error('突破投入与当前小境界不一致。');
     }
     if(kind==='choice'){
       params.event=cleanPending(p.event,s);
@@ -98,7 +101,7 @@
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3,4,5,6].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4,5,6,7].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
@@ -121,6 +124,7 @@
     s.learned=Array.isArray(raw.learned)?[...new Set(raw.learned.filter(id=>G.ITEMS.some(i=>i.id===id&&i.type==='technique')))]:[];
     s.equipment=Array.isArray(raw.equipment)?[...new Set(raw.equipment.filter(id=>G.ITEMS.some(i=>i.id===id&&i.type==='equipment')))]:[];
     s.player.realm=num(raw.player.realm,0,0,G.REALMS.length-1);
+    s.player.realmLevel=num(raw.player.realmLevel,version<7&&raw.activity?.kind==='breakthrough'?G.REALM_LEVELS.length:1,1,G.REALM_LEVELS.length);
     for(const k of ['money','coins','qi'])s.player[k]=num(raw.player[k],s.player[k],0,k==='money'?9999999:999999,k!=='qi');
     for(const k of ['insight','constitution','agility','luck'])s.player[k]=num(raw.player[k],5,1,99);
     for(const k of ['rep','karma'])s.player[k]=num(raw.player[k],0,-50,100);
@@ -158,10 +162,10 @@
       if(s.pending?.delivery)throw new Error('存档包含重复待结算订单。');
       s.orders=s.orders.filter(o=>o.id!==s.activeOrder.id&&o.target!==s.activeOrder.target);
     }
-    s.activity=version>=5&&raw.activity?cleanActivity(raw.activity,s):null;
+    s.activity=version>=5&&raw.activity?cleanActivity(raw.activity,s,version):null;
     if(s.pending&&s.activity)throw new Error('待选事件与进行中行动不能同时存在。');
     s.schemaVersion=G.VERSION;
-    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}，角色、电动车与既有进度已保留；途中状态与既有住处保留。`,'存档');
+    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}，角色、炼药、电动车与既有进度已保留；旧境界从对应大境界一重继续，进行中的旧版大境突破保持原目标。`,'存档');
     return s;
   };
   G.parseImport = text => {
