@@ -40,12 +40,27 @@
   const EPS = 1e-8;
   const point = p => ({x:p.x,y:p.y});
   const distance = (a,b) => (Math.abs(a.x-b.x)+Math.abs(a.y-b.y))*G.WORLD.metersPerUnit;
-  const nodes = G.GRID_Y.flatMap((y,r) => G.GRID_X.map((x,c) => ({x,y,c,r})));
-  const links = nodes.map(a => nodes.flatMap((b,i) => {
-    const adjacent=Math.abs(a.c-b.c)+Math.abs(a.r-b.r)===1;
-    const bridge=a.r===b.r && Math.min(a.c,b.c)===3;
-    return adjacent && (!bridge || [1,3,5].includes(a.r)) ? [i] : [];
-  }));
+  const nodes = G.ROAD_NODES;
+  const links = nodes.map(()=>[]);
+  for (const {from,to} of G.ROAD_EDGES) { links[from].push(to); links[to].push(from); }
+  // 节点缓存上限就是地图节点数；途中仅缓存一个起点，避免按帧积累坐标。
+  const nodeSearches=new Map();let roadSearch=null;
+  function searchRoads(from,anchors){
+    const exact=anchors.length===1&&from.x===nodes[anchors[0]].x&&from.y===nodes[anchors[0]].y;
+    const key=`${from.x}:${from.y}`,cached=exact?nodeSearches.get(anchors[0]):roadSearch?.key===key?roadSearch.value:null;
+    if(cached)return cached;
+    const dist=Array(nodes.length).fill(Infinity),prev=Array(nodes.length).fill(-1),visited=new Set();
+    for(const i of anchors)dist[i]=distance(from,nodes[i]);
+    while(visited.size<nodes.length){
+      let u=-1;
+      for(let i=0;i<nodes.length;i++)if(!visited.has(i)&&(u<0||dist[i]<dist[u]))u=i;
+      if(u<0||!Number.isFinite(dist[u]))break;visited.add(u);
+      for(const v of links[u]){const d=dist[u]+distance(nodes[u],nodes[v]);if(d<dist[v]){dist[v]=d;prev[v]=u;}}
+    }
+    const value={dist,prev};
+    if(exact)nodeSearches.set(anchors[0],value);else roadSearch={key,value};
+    return value;
+  }
   // 途中坐标必须位于真实路段；虚拟起点连接该路段两端，不能吸附或穿江。
   G.roadAnchors = p => {
     if(!p || !Number.isFinite(p.x) || !Number.isFinite(p.y))return [];
@@ -64,14 +79,8 @@
     const from=typeof fromId==='string'?G.place(fromId):fromId,to=G.place(toId);
     const anchors=G.roadAnchors(from);must(anchors.length&&to,'找不到合法的道路位置。');
     const end=nodes.findIndex(n=>n.x===to.x&&n.y===to.y);
-    const dist=Array(nodes.length).fill(Infinity),prev=Array(nodes.length).fill(-1),visited=new Set();
-    for(const i of anchors)dist[i]=distance(from,nodes[i]);
-    while(visited.size<nodes.length){
-      let u=-1;
-      for(let i=0;i<nodes.length;i++)if(!visited.has(i)&&(u<0||dist[i]<dist[u]))u=i;
-      if(u<0||!Number.isFinite(dist[u])||u===end)break;visited.add(u);
-      for(const v of links[u]){const d=dist[u]+distance(nodes[u],nodes[v]);if(d<dist[v]){dist[v]=d;prev[v]=u;}}
-    }
+    const {dist,prev}=searchRoads(from,anchors);
+    must(end>=0&&Number.isFinite(dist[end]),'目的地没有连通道路。');
     const points=[];for(let cur=end;cur>=0;cur=prev[cur])points.unshift(point(nodes[cur]));
     if(distance(from,points[0])>EPS)points.unshift(point(from));
     return {from:typeof fromId==='string'?fromId:null,to:toId,points,meters:dist[end]};
@@ -203,7 +212,7 @@
     }
     return point(route.points.at(-1));
   };
-  const workDuration = (kind,p={}) => ({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:30,repair:30,upgrade:45,heal:30,meal:20,rescue:180,
+  const workDuration = (kind,p={}) => ({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:G.CHARGE.minutes,repair:30,upgrade:45,heal:30,meal:20,rescue:180,
     cultivate:p.kind==='meditate'?90:p.kind==='body'?30:45,alchemy:p.recipe==='heal'?20:25,choice:p.duration||0})[kind]||0;
   function startWork(s,a){
     a.phase='work';a.elapsed=0;a.recovery={};
@@ -467,7 +476,7 @@
         case 'visit':{
           const npc=G.NPCS.find(n=>n.id===payload.id);must(npc,'人物不存在。');must(s.bonds[npc.id].met,'你还没有在旅途中结识这个人。');must(s.bonds[npc.id].lastTalkDay!==G.day(s),'今天已经深入交谈过了，明天再来吧。');begin(s,'visit',{id:npc.id},npc.place);G.log(s,`出发拜访${npc.name}。`,'拜访');break;
         }
-        case 'charge':must(s.vehicle.battery<G.limits(s).battery-.01,'电量已满。');effects(s,{money:-8});begin(s,'charge');G.log(s,'开始原地充电，现金 -¥8，需要 30 分钟。','电动车');break;
+        case 'charge':must(s.vehicle.battery<G.limits(s).battery-.01,'电量已满。');effects(s,{money:-G.CHARGE.cost});begin(s,'charge');G.log(s,`开始原地充电，现金 -¥${G.CHARGE.cost}，需要 ${G.CHARGE.minutes} 分钟。`,'电动车');break;
         case 'repair':{
           must(s.position==='garage','请先前往修车铺维修。');const missing=G.limits(s).durability-s.vehicle.durability;must(missing>.01,'车况完好，无需维修。');const cost=Math.ceil(missing*.6)+12;effects(s,{money:-cost});begin(s,'repair');G.log(s,`开始维修，现金 -¥${cost}。`,'电动车');break;
         }

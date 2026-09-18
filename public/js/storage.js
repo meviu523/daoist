@@ -38,7 +38,7 @@
     const kinds=['travel','deliver','moveHome','sleep','visit','rest','cultivate','breakthrough','alchemy','explore','charge','repair','upgrade','heal','meal','choice','rescue'];
     if(!obj(raw)||!kinds.includes(raw.kind)||!['travel','work'].includes(raw.phase))throw new Error('进行中的行动格式无效。');
     const kind=raw.kind,p=obj(raw.params)?raw.params:{},params={};
-    let duration=({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:30,repair:30,upgrade:45,heal:30,meal:20,rescue:180})[kind]||0;
+    let duration=({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:G.CHARGE.minutes,repair:30,upgrade:45,heal:30,meal:20,rescue:180})[kind]||0;
     if(['moveHome','sleep'].includes(kind)){
       if(!G.residence(p.id))throw new Error('行动中的住处无效。');params.id=p.id;
     }
@@ -71,6 +71,9 @@
       if(!G.place(target)||target!==raw.target)throw new Error('行动目的地与存档不一致。');
     }
     const a={kind,params,target,phase:raw.phase,duration,elapsed:num(raw.elapsed,0,0,duration,false),startedAt:num(raw.startedAt,s.minutes,0,s.minutes,false),route:null,travelled:0,recovery:{},gainedQi:num(raw.gainedQi,0,0,999999,false)};
+    // v5 旧版充电为 30 分钟：按完成比例缩短余程，保留现有电量与已付费用。
+    // 写回后 duration=10，重复读档不会再次缩短或重复补电。
+    if(kind==='charge'&&raw.duration===30)a.elapsed=num(raw.elapsed,0,0,30,false)/30*duration;
     if(raw.route){
       if(!target||!Array.isArray(raw.route.points)||!G.roadAnchors(raw.route.points[0]).length)throw new Error('进行中的道路路线无效。');
       a.route=G.route(raw.route.points[0],target);a.travelled=num(raw.travelled,0,0,a.route.meters,false);
