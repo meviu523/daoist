@@ -52,6 +52,8 @@ engine.perform(旧状态, 行动, 参数)
 
 处理事件期间禁止其他世界行动。重复旧事件ID、旧订单ID或多次点击不能重发奖励。每个关键人物章节都至少有一个零金钱/灵力/道具成本的选项，避免把玩家困在强制对话里。
 
+人物采用发现制。`bonds[npc].met` 默认是 `false`：配送票据带有该地点 NPC 时，订单结算会将其设为已结识；经典随机事件可用 `encounterNpc` 在事件触发时解锁角色。应用层只渲染已结识人物，`visit` 在规则层也会拒绝未结识角色，不能靠直接构造按钮绕过。旧存档迁移时，已有好感、信任、章节进度或关系路线会推断为已结识。
+
 ## 存档结构
 
 主要字段：
@@ -65,7 +67,7 @@ engine.perform(旧状态, 行动, 参数)
             insight, constitution, agility, luck, karma, rep },
   vehicle: { battery, durability, levels: { speed, battery, durability } },
   inventory, learned, equipment, stats,
-  bonds: { /* 每人 affinity, trust, stage, path, lastTalkDay */ },
+  bonds: { /* 每人 met, affinity, trust, stage, path, lastTalkDay */ },
   daily, claimed, unlockedEndings, ending,
   flags, recentEvents, pending, orders, logs, lastRoute
 }
