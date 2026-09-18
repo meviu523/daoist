@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 6;
+  G.VERSION = 7;
   G.TITLE = '外卖修仙录';
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050];
   G.GRID_Y = [120, 300, 480, 660, 840, 1020, 1200, 1380];
@@ -47,9 +47,10 @@
       place.desc = residence.desc;
     }
   }
+  G.REALM_LEVELS = ['一重','二重','三重','四重','五重','六重','七重','八重','九重'];
   G.REALMS = [
     { name: '凡人', need: 80 }, { name: '炼气', need: 180 }, { name: '筑基', need: 380 },
-    { name: '金丹', need: 700 }, { name: '元婴', need: 1100 }, { name: '化神', need: 0 }
+    { name: '金丹', need: 700 }, { name: '元婴', need: 1100 }, { name: '化神', need: 1600, terminal: true }
   ];
   G.WEATHER = [ { id: 'clear', name: '晴', speed: 1 }, { id: 'cloudy', name: '多云', speed: 1 }, { id: 'rain', name: '细雨', speed: .82 }, { id: 'mist', name: '薄雾', speed: .9 } ];
   G.ORDER_TYPES = [
