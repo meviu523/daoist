@@ -42,21 +42,37 @@
     }
     render(s){
       this.s=s;if(!s)return;this.el.dataset.night=String(G.isNight(s));
-      const live=new Set([...G.PLACES.filter(p=>p.permanent).map(p=>p.id),...s.orders.map(o=>o.target)]);
-      this.el.querySelector('.points-layer').innerHTML=[...live].map(id=>this.point(G.place(id),s.orders.find(o=>o.target===id))).join('');
-      const player=G.place(s.position);
-      this.el.querySelector('.player-layer').innerHTML=`<g class="player-marker" transform="translate(${player.x} ${player.y-39})" role="img" aria-label="玩家${escape(s.name)}位于${escape(player.name)}"><circle class="player-pulse" r="20" fill="#8cd6c4" opacity=".16"/><path d="M-8 9 0 18 8 9" fill="#8ad1bd"/><circle r="12" fill="#a6e5cd" stroke="#133c34" stroke-width="3"/><circle cy="-3" r="3" fill="#244a3f"/><path d="M-5 6Q0-2 5 6" fill="#244a3f"/></g>`;
+      const live=new Set([...G.PLACES.filter(p=>p.permanent).map(p=>p.id),...s.orders.map(o=>o.target),...(s.activeOrder?[s.activeOrder.target]:[]) ]);
+      this.el.querySelector('.points-layer').innerHTML=[...live].map(id=>this.point(G.place(id),s.activeOrder?.target===id?s.activeOrder:s.orders.find(o=>o.target===id))).join('');
+      const player=G.playerPoint(s);
+      this.el.querySelector('.player-layer').innerHTML=`<g class="player-marker" transform="translate(${player.x} ${player.y-39})" role="img" aria-label="玩家${escape(s.name)}位于${escape(G.locationName(s))}"><circle class="player-pulse" r="20" fill="#8cd6c4" opacity=".16"/><path d="M-8 9 0 18 8 9" fill="#8ad1bd"/><circle r="12" fill="#a6e5cd" stroke="#133c34" stroke-width="3"/><circle cy="-3" r="3" fill="#244a3f"/><path d="M-5 6Q0-2 5 6" fill="#244a3f"/></g>`;
       this.renderTrail();
     }
     renderTrail(){
-      if(!this.s)return;let trail='';const route=this.selected?G.route(this.s.position,this.selected):this.s.lastRoute;
+      if(!this.s)return;let trail='';
+      const a=this.s.activity;
+      let route=this.selected?G.routeFrom(this.s,this.selected):a?.phase==='travel'?a.route:this.s.lastRoute;
+      if(!this.selected&&a?.phase==='travel'){
+        let length=0;const points=[G.playerPoint(this.s)];
+        for(let i=1;i<a.route.points.length;i++){
+          const p=a.route.points[i-1],q=a.route.points[i];length+=(Math.abs(p.x-q.x)+Math.abs(p.y-q.y))*G.WORLD.metersPerUnit;
+          if(length>a.travelled+1e-8)points.push(q);
+        }
+        route={points};
+      }
       if(route?.points.length>1){const d=route.points.map((p,i)=>`${i?'L':'M'}${p.x} ${p.y}`).join(' ');trail=`<path d="${d}" fill="none" stroke="${this.selected?'#e4c489':'#81b8a5'}" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 8" opacity="${this.selected?'.85':'.4'}"/>`;}
       this.el.querySelector('.trail-layer').innerHTML=trail;
+    }
+    updatePosition(s){
+      this.s=s;const marker=this.el.querySelector('.player-marker');if(!marker)return this.render(s);
+      const p=G.playerPoint(s);marker.setAttribute('transform',`translate(${p.x} ${p.y-39})`);
+      marker.setAttribute('aria-label',`玩家${s.name}位于${G.locationName(s)}`);
+      this.el.dataset.night=String(G.isNight(s));this.renderTrail();
     }
     select(id){this.selected=id;this.render(this.s);}
     transform(){const w=this.el.clientWidth,h=this.el.clientHeight;this.scale=G.clamp(this.scale,.2,2.8);this.tx=G.clamp(this.tx,-G.WORLD.width*this.scale+80,w-80);this.ty=G.clamp(this.ty,-G.WORLD.height*this.scale+80,h-80);this.layer.setAttribute('transform',`translate(${this.tx} ${this.ty}) scale(${this.scale})`);this.el.dataset.zoom=this.scale.toFixed(2);}
     fit(){const w=this.el.clientWidth,h=this.el.clientHeight;if(!w||!h)return;this.scale=G.clamp(Math.min(w/G.WORLD.width,(h-95)/G.WORLD.height)*.97,.2,2.8);this.tx=(w-G.WORLD.width*this.scale)/2;this.ty=(h-95-G.WORLD.height*this.scale)/2;this.transform();}
-    center(){if(!this.s)return;const p=G.place(this.s.position);this.scale=Math.max(this.el.clientWidth<800?.95:.7,this.scale);this.tx=this.el.clientWidth*.48-p.x*this.scale;this.ty=this.el.clientHeight*.52-p.y*this.scale;this.transform();}
+    center(){if(!this.s)return;const p=G.playerPoint(this.s);this.scale=Math.max(this.el.clientWidth<800?.95:.7,this.scale);this.tx=this.el.clientWidth*.48-p.x*this.scale;this.ty=this.el.clientHeight*.52-p.y*this.scale;this.transform();}
     zoom(mult,x=this.el.clientWidth/2,y=this.el.clientHeight/2){const prev=this.scale,next=G.clamp(prev*mult,.2,2.8);this.tx=x-(x-this.tx)*next/prev;this.ty=y-(y-this.ty)*next/prev;this.scale=next;this.transform();}
     local(e){const b=this.el.getBoundingClientRect();return{x:e.clientX-b.left,y:e.clientY-b.top};}
     resetPinch(){const a=[...this.pointers.values()];if(a.length<2)return;const mid={x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2};this.pinch={distance:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1,scale:this.scale,wx:(mid.x-this.tx)/this.scale,wy:(mid.y-this.ty)/this.scale};}

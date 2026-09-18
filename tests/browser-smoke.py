@@ -1,174 +1,320 @@
-"""Browser UI checks with in-memory Web Storage and AI mocks.
-The sandbox Chromium blocks URL navigation; render the built offline page via
-set_content. Real HTTP routes are independently covered by server.test.mjs.
-Install Python Playwright and its browser before running outside this sandbox.
+"""Offline Chromium integration checks.
+
+Build first: npm run build. Requires Python Playwright and Chromium. Uses the
+actual bundled application with in-memory localStorage and explicitly mocked AI.
+Most cases drive GameClock with controlled timestamps; a separate case uses real
+requestAnimationFrame. HTTP allowlist/CSP/AI proxy have independent Node tests.
 """
 import json
 import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-ROOT=Path(__file__).resolve().parents[1]
-OUT=ROOT/'artifacts'
+
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / 'artifacts'
 OUT.mkdir(exist_ok=True)
-HTML=(ROOT/'dist/index.html').read_text()
-BOOT=r'''
+HTML = (ROOT / 'dist/index.html').read_text()
+BOOT = r'''
 window.__memory = new Map();
-window.__aiConfigured = false;
-window.__aiDelay = 0;
+window.__aiConfigured = false; window.__aiDelay = 0; window.__aiFail = false;
 window.__aiEvent = {title:'雨后的小灯',text:'巷口的店主在等一份热饭。',choices:[{label:'认真道谢',result:'店主也笑了。',effects:{qi:5}},{label:'请他喝一杯茶',result:'热茶驱散了寒意。',effects:{money:-5,karma:2}},{label:'留下祝福',result:'灯光亮了一点。',effects:{rep:1}}]};
 Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:k=>window.__memory.get(k)??null,setItem:(k,v)=>window.__memory.set(k,String(v)),removeItem:k=>window.__memory.delete(k),clear:()=>window.__memory.clear()}});
 window.fetch = async (url,options={}) => {
  if(String(url).endsWith('/api/health')) return new Response(JSON.stringify({aiConfigured:window.__aiConfigured}));
  if(String(url).endsWith('/api/story')){
   await new Promise((resolve,reject)=>{const t=setTimeout(resolve,window.__aiDelay);options.signal?.addEventListener('abort',()=>{clearTimeout(t);reject(new DOMException('Aborted','AbortError'));});});
+  if(window.__aiFail) return new Response(JSON.stringify({error:'模拟接口失败'}),{status:503});
   return new Response(JSON.stringify({event:window.__aiEvent}));
  }
  throw new Error('Unexpected request in offline UI test');
 };
 '''
-results=[]
+CONTROL = r'''
+const G=NightCourier, original=G.GameClock.prototype.frame;
+window.__now=10000;window.__wall=0;const wall=Date.now;
+Date.now=()=>wall()+window.__wall;
+G.GameClock.prototype.frame=function(){window.__clock=this;};
+window.__pump=ms=>{
+ const c=window.__clock;if(!c)throw new Error('Clock not initialized');
+ original.call(c,window.__now);
+ while(ms>0){const delta=Math.min(20,ms);window.__now+=delta;window.__wall+=delta;original.call(c,window.__now);ms-=delta;}
+};
+'''
+CAPTURE = r'''
+const G=NightCourier;
+for(const name of ['render','updatePosition']){
+ const old=G.CityMap.prototype[name];
+ G.CityMap.prototype[name]=function(s){if(s)window.__live=G.clone(s);return old.call(this,s);};
+}
+'''
+results = []
+
 def record(name):
- results.append({'name':name,'passed':True})
- print('PASS',name,flush=True)
-def save(page):
- return page.evaluate("JSON.parse(localStorage.getItem('night-courier:saves:v3')).saves[0]")
-def new_game(page,name='云行',mode='classic'):
- page.click('[data-ui="new-game"]')
- page.fill('#player-name-input',name)
- page.check(f'input[name="mode"][value="{mode}"]')
- page.click('#new-game-form button[type="submit"]')
- page.wait_for_selector('#game-screen:not([hidden])')
-def setup(browser,viewport,ai=False):
- ctx=browser.new_context(viewport=viewport,has_touch=viewport['width']<600,device_scale_factor=1)
- page=ctx.new_page()
- errors=[]
- page.on('pageerror',lambda err:errors.append(str(err)))
- page.evaluate("() => {"+BOOT+"}")
- page.evaluate('(ai)=>window.__aiConfigured=ai',ai)
- page.set_content(HTML,wait_until='domcontentloaded')
- return ctx,page,errors
+    results.append({'name': name, 'passed': True})
+    print('PASS', name, flush=True)
+
+def current(page):
+    return page.evaluate('window.__live')
+
+def stored(page, name=None):
+    return page.evaluate('(name)=>{const s=JSON.parse(localStorage.getItem(NightCourier.STORAGE_KEY)).saves;return name?s.find(x=>x.name===name):s[0];}', name)
+
+def pump(page, ms):
+    page.evaluate('(ms)=>window.__pump(ms)', ms)
+    page.wait_for_timeout(120)  # Let the real render loop update the lightweight HUD.
+
+def toggle(page):
+    page.click('[data-ui="pause"]')
+
+def new_game(page, name='云行', mode='classic'):
+    page.click('[data-ui="new-game"]')
+    page.fill('#player-name-input', name)
+    page.check(f'input[name="mode"][value="{mode}"]')
+    page.click('#new-game-form button[type="submit"]')
+    page.wait_for_selector('#game-screen:not([hidden])')
+
+def setup(browser, width=1440, height=1000, ai=False, controlled=True):
+    ctx = browser.new_context(viewport={'width': width, 'height': height}, has_touch=width<600, device_scale_factor=1)
+    page = ctx.new_page()
+    errors = []
+    page.on('pageerror', lambda err: errors.append(str(err)))
+    page.evaluate('() => {' + BOOT + '}')
+    page.evaluate('(ai)=>window.__aiConfigured=ai', ai)
+    page.set_content(HTML, wait_until='domcontentloaded')
+    if controlled:
+        page.evaluate('() => {' + CONTROL + '}')
+        page.wait_for_function('window.__clock != null')
+    page.evaluate('() => {' + CAPTURE + '}')
+    return ctx, page, errors
+
+def select_order(page):
+    page.locator('.order-point').first.focus()
+    page.keyboard.press('Enter')
+    assert page.locator('[data-act="deliver"]').is_enabled()
+
+def fixture(page, edits):
+    page.click('[data-ui="home"]')
+    page.evaluate('''(edits)=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k));const s=x.saves[0];Object.assign(s,edits);localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''', edits)
+    page.locator('[data-ui="load"]').first.click()
+
 with sync_playwright() as p:
- executable=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium')
- kwargs={'headless':True}
- if Path(executable).exists():kwargs['executable_path']=executable
- browser=p.chromium.launch(**kwargs)
- ctx,page,errors=setup(browser,{'width':1440,'height':1000})
- page.screenshot(path=str(OUT/'start-desktop.png'))
- new_game(page)
- page.wait_for_timeout(150)
- assert page.locator('.player-name').inner_text()=='云行'
- assert '外卖修仙录' not in page.locator('#game-header').inner_text()
- assert page.locator('.player-marker').count()==1
- assert page.locator('.map-point').count()<=13
- record('桌面开局、顶部玩家姓名、动态地图标记')
- page.screenshot(path=str(OUT/'game-desktop.png'))
- before=save(page)
- # Select via keyboard, the same accessible route used by actual SVG buttons.
- page.locator('.order-point').first.focus()
- page.keyboard.press('Enter')
- assert page.locator('[data-act="deliver"]').count()==1
- page.screenshot(path=str(OUT/'order-desktop.png'))
- page.click('[data-act="deliver"]')
- accepted=save(page)
- assert accepted['pending'] and accepted['stats']['delivered']==0
- assert accepted['position']!=before['position']
- page.screenshot(path=str(OUT/'event-desktop.png'))
- page.click('[data-act="choose"][data-index="0"]')
- assert save(page)['stats']['delivered']==1
- assert page.locator('#panel').evaluate('(d)=>d.open') is False
- record('地图接单、移动、三选项事件和延后结算')
- page.locator('.game-nav [data-panel="system"]').click()
- old=save(page)
- page.click('[data-act="sign"]')
- signed=save(page)
- assert signed['minutes']==old['minutes'] and signed['player']['coins']>old['player']['coins']
- page.click('[data-act="buy"][data-id="qi"]')
- bought=save(page)
- assert bought['minutes']==signed['minutes']
- assert bought['position']==signed['position']
- assert bought['inventory']['qi']==signed['inventory']['qi']+1
- page.screenshot(path=str(OUT/'system-desktop.png'))
- page.click('[data-ui="close"]')
- record('远程系统签到、即时兑换且不耗时')
- page.click('[data-ui="home"]')
- assert page.locator('.save-card').count()==1
- new_game(page,'青禾','ai')
- assert save(page)['mode']=='ai'
- page.click('[data-ui="home"]')
- assert page.locator('.save-card').count()==2
- page.locator('.save-card').filter(has_text='云行').locator('[data-ui="load"]').click()
- assert save(page)['mode']=='ai'  # recently-written save remains first in library
- assert page.locator('.player-name').inner_text()=='云行'
- record('两份独立存档与开始页重新载入')
- # Preview night/cultivation with a deliberately injected QA fixture.
- page.click('[data-ui="home"]')
- page.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k));const s=x.saves.find(s=>s.name==='云行');s.minutes=1200;s.player.qi=90;s.player.coins=40;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
- page.locator('.save-card').filter(has_text='云行').locator('[data-ui="load"]').click()
- page.locator('.game-nav [data-panel="cultivation"]').click()
- page.screenshot(path=str(OUT/'cultivation-desktop.png'))
- assert '夜间灵气 +45%' in page.locator('#panel').inner_text()
- page.click('[data-ui="close"]')
- before_zoom=float(page.locator('#city-map').get_attribute('data-zoom'))
- page.click('[data-ui="zoom-in"]')
- assert float(page.locator('#city-map').get_attribute('data-zoom'))>before_zoom
- old_transform=page.locator('.world-layer').get_attribute('transform')
- page.mouse.move(700,550);page.mouse.down();page.mouse.move(790,600,steps=6);page.mouse.up()
- assert page.locator('.world-layer').get_attribute('transform')!=old_transform
- record('夜间修炼界面、按钮缩放与鼠标平移')
- assert not errors,errors
- record('桌面流程无 JavaScript 运行时异常')
- ctx.close()
- # Mobile geometry and gestures.
- ctx,mobile,merrors=setup(browser,{'width':390,'height':844})
- mobile.screenshot(path=str(OUT/'start-mobile.png'),full_page=True)
- new_game(mobile,'行舟')
- mobile.wait_for_timeout(100)
- assert float(mobile.locator('#city-map').get_attribute('data-zoom')) >= .9
- mobile.screenshot(path=str(OUT/'game-mobile.png'))
- assert mobile.evaluate('document.documentElement.scrollWidth<=innerWidth')
- nav=mobile.locator('#game-nav').bounding_box()
- assert nav['x']>=0 and nav['x']+nav['width']<=390.5 and nav['y']+nav['height']<=844
- mobile.locator('.game-nav [data-panel="system"]').click()
- mobile.screenshot(path=str(OUT/'system-mobile.png'))
- panel=mobile.locator('#panel').bounding_box()
- assert panel['x']>=0 and panel['y']>=0 and panel['y']+panel['height']<=844
- assert mobile.locator('[data-act="sign"]').is_visible()
- mobile.click('[data-ui="close"]')
- record('390px 手机布局、导航与可滚动系统面板')
- before_zoom=float(mobile.locator('#city-map').get_attribute('data-zoom'))
- cdp=ctx.new_cdp_session(mobile)
- cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':145,'y':420},{'x':245,'y':420}]})
- cdp.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':110,'y':420},{'x':280,'y':420}]})
- cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
- after_zoom=float(mobile.locator('#city-map').get_attribute('data-zoom'))
- assert after_zoom>before_zoom,(before_zoom,after_zoom)
- assert mobile.locator('#panel').evaluate('(d)=>d.open') is False
- record('双指缩放不误触任务标记')
- assert not merrors,merrors
- record('手机流程无 JavaScript 运行时异常')
- ctx.close()
- # AI mode: successful mock generation and stale-response cancellation.
- ctx,ai,aerrors=setup(browser,{'width':1200,'height':900},ai=True)
- new_game(ai,'听雨','ai')
- ai.click('[data-ui="home"]')
- ai.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k));const s=x.saves[0];s.position='park';s.flags.firstOrder=true;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
- ai.click('[data-ui="load"]')
- ai.locator('[data-place="park"]').focus();ai.keyboard.press('Enter')
- ai.click('[data-act="explore"]')
- ai.wait_for_function("document.querySelector('#panel-title').textContent==='雨后的小灯'")
- assert save(ai)['pending']['source']=='ai'
- ai.click('[data-act="choose"][data-index="0"]')
- assert save(ai)['pending'] is None
- record('AI 模式成功接收有界事件（模拟接口）')
- ai.evaluate('window.__aiDelay=1500')
- ai.locator('[data-place="park"]').focus();ai.keyboard.press('Enter');ai.click('[data-act="explore"]')
- ai.click('[data-act="choose"][data-index="0"]')
- settled=save(ai)
- ai.wait_for_timeout(1700)
- assert save(ai)['pending'] is None
- assert save(ai)['player']==settled['player']
- record('提前选择经典事件后，迟到 AI 回包不会覆盖状态')
- assert not aerrors,aerrors
- ctx.close();browser.close()
-(OUT/'browser-tests.json').write_text(json.dumps({'mode':'offline-render-with-storage-and-ai-mocks','tests':results,'passed':len(results),'failed':0},ensure_ascii=False,indent=2))
+    executable = os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium')
+    kwargs = {'headless': True}
+    if Path(executable).exists():
+        kwargs['executable_path'] = executable
+    browser = p.chromium.launch(**kwargs)
+    ctx, page, errors = setup(browser)
+    page.screenshot(path=str(OUT/'start-desktop.png'))
+    new_game(page)
+    assert page.locator('.player-name').inner_text() == '云行'
+    assert '外卖修仙录' not in page.locator('#game-header').inner_text()
+    assert page.locator('.player-marker').count() == 1
+    page.screenshot(path=str(OUT/'game-desktop.png'))
+    pump(page, 1200)
+    assert abs(current(page)['minutes']-481.2) < 1e-5
+    assert current(page)['position'] == 'home'
+    toggle(page)
+    before = stored(page)
+    pump(page, 5000)
+    assert current(page)['minutes'] == before['minutes']
+    record('桌面开局姓名、空闲连续计时与全局暂停')
+
+    select_order(page)
+    page.screenshot(path=str(OUT/'order-desktop.png'))
+    page.click('[data-act="deliver"]')
+    accepted = stored(page)
+    assert accepted['activity']['kind'] == 'deliver'
+    assert accepted['position'] == before['position'] and accepted['minutes'] == before['minutes']
+    assert accepted['stats']['delivered'] == 0 and not accepted['pending']
+    pump(page, 500)
+    assert current(page)['activity']['travelled'] == 0
+    toggle(page)
+    page.evaluate('window.__marker=document.querySelector(".player-marker")')
+    pump(page, 300)
+    halfway = current(page)
+    assert halfway['position'] is None and halfway['activity']['travelled'] > 0
+    assert page.evaluate('window.__marker===document.querySelector(".player-marker")')
+    assert halfway['vehicle']['battery'] < before['vehicle']['battery']
+    toggle(page)
+    point = page.locator('.player-marker').get_attribute('transform')
+    frozen = stored(page)
+    pump(page, 2000)
+    assert page.locator('.player-marker').get_attribute('transform') == point
+    assert current(page)['minutes'] == frozen['minutes']
+    page.screenshot(path=str(OUT/'moving-desktop.png'))
+    record('接单不瞬移不提前结算，路程、位置、消耗与暂停同步')
+    record('移动普通帧保留同一人物节点，不重建整张地图')
+
+    page.click('[data-ui="home"]')
+    page.click('[data-ui="load"]')
+    assert page.locator('#game-screen').get_attribute('data-paused') == 'true'
+    assert abs(current(page)['activity']['travelled']-frozen['activity']['travelled']) < 1e-6
+    assert current(page)['location'] == frozen['location']
+    pump(page, 2000)
+    assert current(page)['minutes'] == frozen['minutes']
+    record('途中自动存档恢复路线和小数进度，读档默认暂停')
+
+    page.locator('.game-nav [data-panel="system"]').click()
+    pump(page, 500)
+    page.click('[data-act="sign"]')
+    signed = stored(page)
+    page.click('[data-act="buy"][data-id="qi"]')
+    bought = stored(page)
+    assert bought['minutes'] == frozen['minutes']
+    assert bought['inventory']['qi'] == signed['inventory']['qi']+1
+    assert bought['activity']['travelled'] == frozen['activity']['travelled']
+    page.click('[data-ui="close"]')
+    pump(page, 2000)
+    assert current(page)['minutes'] == frozen['minutes']
+    record('系统即时兑换不推进活动，关闭面板不会解除手动暂停')
+    toggle(page)
+    page.click('#action-bar [data-act="stop"]')
+    stopped = stored(page)
+    pump(page, 1000)
+    assert current(page)['location'] == stopped['location']
+    assert current(page)['minutes'] > stopped['minutes']
+    assert current(page)['activeOrder']['id'] == accepted['activeOrder']['id']
+    page.click('#action-bar [data-act="resumeDelivery"]')
+    page.select_option('#time-speed', '10')
+    pump(page, 20000)
+    assert current(page)['pending'] and current(page)['stats']['delivered'] == 0
+    paused_at = current(page)['minutes']
+    pump(page, 2000)
+    assert current(page)['minutes'] == paused_at
+    page.screenshot(path=str(OUT/'event-desktop.png'))
+    page.click('[data-act="choose"][data-index="0"]')
+    assert stored(page)['stats']['delivered'] == 1
+    record('停车仍计订单期限，继续配送后事件暂停，交付只结算一次')
+
+    # Running before opening a panel resumes after closing; rate controls affect time.
+    page.select_option('#time-speed', '1')
+    old = current(page)['minutes']
+    page.locator('.game-nav [data-panel="inventory"]').click()
+    pump(page, 1000)
+    assert current(page)['minutes'] == old
+    page.click('[data-ui="close"]')
+    pump(page, 1000)
+    assert abs(current(page)['minutes']-old-1) < 1e-5
+    for speed in [3, 10]:
+        page.select_option('#time-speed', str(speed))
+        old = current(page)['minutes']
+        pump(page, 1000)
+        assert abs(current(page)['minutes']-old-speed) < 1e-5
+    record('面板自动暂停并恢复先前状态，1/3/10 倍率推进完整模拟')
+
+    # Visibility is deliberately simulated, not a physical mobile OS suspend.
+    page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));}''')
+    old = stored(page)['minutes']
+    pump(page, 100000)
+    page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));}''')
+    pump(page, 2000)
+    assert current(page)['minutes'] == old
+    assert page.locator('[data-ui="pause"]').inner_text() == '继续'
+    record('页面隐藏与恢复不补算离线时间，返回后等待手动继续')
+
+    page.click('[data-ui="home"]')
+    new_game(page, '青禾', 'ai')
+    page.click('[data-ui="home"]')
+    assert page.locator('.save-card').count() == 2
+    page.locator('.save-card').filter(has_text='云行').locator('[data-ui="load"]').click()
+    assert page.locator('.player-name').inner_text() == '云行'
+    assert stored(page, '青禾')['mode'] == 'ai'
+    assert stored(page, '云行')['mode'] == 'classic'
+    record('多存档隔离，读取后保留各自剧情模式')
+    page.evaluate('window.dispatchEvent(new StorageEvent("storage",{key:NightCourier.STORAGE_KEY}))')
+    old = current(page)['minutes']
+    toggle(page)
+    pump(page, 2000)
+    assert current(page)['minutes'] == old
+    assert '另一标签页' in page.locator('#storage-warning').inner_text()
+    record('另一标签页写入后冻结旧页面，暂停按钮不能绕过冲突')
+    assert not errors, errors
+    record('桌面流程无 JavaScript 运行时异常')
+    ctx.close()
+
+    for width, height in [(390, 844), (320, 740)]:
+        ctx, mobile, merrors = setup(browser, width, height)
+        new_game(mobile, '行舟')
+        pump(mobile, 100)
+        mobile.screenshot(path=str(OUT/f'game-{width}.png'))
+        assert mobile.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        for selector in ['#game-nav', '#action-bar', '.time-controls']:
+            box = mobile.locator(selector).bounding_box()
+            assert box['x'] >= 0 and box['x']+box['width'] <= width+.5
+            assert box['y'] >= 0 and box['y']+box['height'] <= height+.5
+        mobile.locator('.game-nav [data-panel="system"]').click()
+        mobile.screenshot(path=str(OUT/f'system-{width}.png'))
+        panel = mobile.locator('#panel').bounding_box()
+        assert panel['x'] >= 0 and panel['y'] >= 0 and panel['y']+panel['height'] <= height
+        assert mobile.locator('[data-act="sign"]').is_visible()
+        mobile.click('[data-ui="close"]')
+        if width == 390:
+            z = float(mobile.locator('#city-map').get_attribute('data-zoom'))
+            cdp = ctx.new_cdp_session(mobile)
+            cdp.send('Input.dispatchTouchEvent', {'type':'touchStart','touchPoints':[{'x':145,'y':420},{'x':245,'y':420}]})
+            cdp.send('Input.dispatchTouchEvent', {'type':'touchMove','touchPoints':[{'x':110,'y':420},{'x':280,'y':420}]})
+            cdp.send('Input.dispatchTouchEvent', {'type':'touchEnd','touchPoints':[]})
+            assert float(mobile.locator('#city-map').get_attribute('data-zoom')) > z
+            assert not mobile.locator('#panel').evaluate('(d)=>d.open')
+            record('双指缩放不误接单，缩放只改变视角')
+        assert not merrors, merrors
+        record(f'{width}px 手机视口：时间控制、行动栏、导航、面板无溢出或运行异常')
+        ctx.close()
+
+    ctx, ai, aerrors = setup(browser, 1200, 900, ai=True)
+    new_game(ai, '听雨', 'ai')
+    flags = current(ai)['flags'];flags['firstOrder'] = True
+    fixture(ai, {'position':'park','location':None,'flags':flags})
+    toggle(ai)
+    ai.select_option('#time-speed', '10')
+    ai.locator('[data-place="park"]').focus();ai.keyboard.press('Enter')
+    ai.click('[data-act="explore"]')
+    pump(ai, 3200)
+    ai.wait_for_function("document.querySelector('#panel-title').textContent==='雨后的小灯'")
+    assert stored(ai)['pending']['source'] == 'ai'
+    at = stored(ai)['minutes'];pump(ai, 2000)
+    assert current(ai)['minutes'] == at
+    ai.click('[data-act="choose"][data-index="0"]')
+    assert stored(ai)['pending'] is None
+    record('AI 模拟成功返回受限事件，等待和阅读期间时间冻结')
+    ai.evaluate('window.__aiDelay=1200')
+    ai.locator('[data-place="park"]').focus();ai.keyboard.press('Enter')
+    ai.click('[data-act="explore"]');pump(ai, 3200)
+    ai.click('[data-act="choose"][data-index="0"]')
+    pump(ai, 5000)
+    settled = current(ai)
+    ai.wait_for_timeout(1400)
+    assert current(ai)['pending'] is None
+    assert current(ai)['player'] == settled['player']
+    record('提前选择经典选项后，迟到 AI 响应不覆盖状态或重复奖励')
+    ai.evaluate('window.__aiDelay=0;window.__aiFail=true')
+    ai.locator('[data-place="park"]').focus();ai.keyboard.press('Enter')
+    ai.click('[data-act="explore"]');pump(ai, 3200)
+    ai.wait_for_function("JSON.parse(localStorage.getItem(NightCourier.STORAGE_KEY)).saves[0].pending?.aiStatus==='fallback'")
+    assert stored(ai)['pending']['source'] == 'classic'
+    assert stored(ai)['mode'] == 'ai'
+    record('AI 模拟失败回退经典事件，存档模式不改变')
+    assert not aerrors, aerrors
+    ctx.close()
+
+    ctx, real, rerrors = setup(browser, 1024, 800, controlled=False)
+    new_game(real, '实时时钟')
+    real.wait_for_timeout(1250)
+    assert current(real)['minutes'] > 481
+    toggle(real)
+    at = stored(real)['minutes']
+    real.wait_for_timeout(300)
+    assert current(real)['minutes'] == at
+    select_order(real);real.click('[data-act="deliver"]')
+    toggle(real);real.wait_for_timeout(200);toggle(real)
+    assert stored(real)['activity']['travelled'] > 0
+    assert not rerrors, rerrors
+    record('真实 requestAnimationFrame：空闲流逝、移动与暂停实测')
+    ctx.close()
+    browser.close()
+
+(OUT/'browser-tests.json').write_text(json.dumps({
+    'mode':'offline Chromium bundle; controlled GameClock timestamps plus real-rAF probe; mocked storage and AI',
+    'tests':results, 'passed':len(results), 'failed':0,
+}, ensure_ascii=False, indent=2))
 print(f'{len(results)} browser checks passed.')

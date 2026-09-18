@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="styles.css">
   <script src="js/data.js" defer></script>
   <script src="js/engine.js" defer></script>
+  <script src="js/clock.js" defer></script>
   <script src="js/storage.js" defer></script>
   <script src="js/progression.js" defer></script>
   <script src="js/map.js" defer></script>
@@ -29,6 +30,12 @@
         <button data-ui="locate" title="定位玩家" aria-label="定位玩家">◎</button>
         <button data-ui="fit-map" title="查看全城" aria-label="查看全城">⌘</button>
       </div>
+      <section id="action-bar" class="action-bar" aria-label="当前行动">
+        <div class="action-summary"><strong id="action-title">原地停留</strong><span id="action-detail"></span><div class="activity-progress" role="progressbar" aria-label="行动进度" aria-valuemin="0" aria-valuemax="100"><i></i></div></div>
+        <button class="btn small" data-act="stop" hidden>停止行动</button>
+        <button class="btn small" data-act="resumeDelivery" hidden>继续配送</button>
+        <button class="text-btn" data-ui="cancel-delivery" hidden>取消订单</button>
+      </section>
       <div id="map-legend" class="map-legend"><span><i class="gold-dot"></i>配送订单</span><span><i class="sage-dot"></i>城市地点</span><span><i class="mint-dot"></i>你的位置</span></div>
     </main>
     <nav id="game-nav" class="game-nav" aria-label="游戏导航"></nav>
