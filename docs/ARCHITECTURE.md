@@ -58,7 +58,7 @@
 | 原地充电 | 先付 ¥8，30 分钟逐步补电，无地点要求 |
 | 维修/治疗/用餐 | 当地开始时付费，按进度恢复；维修、治疗 30 分钟，用餐 20 分钟 |
 | 升级 | 修车铺付费后 45 分钟，完成才提升等级 |
-| 炼丹 | 开始扣材料/灵力，20 或 25 分钟完成判定，中断不退材料 |
+| 炼药 | 必须先在长乐集购买药鼎；丹方按炼药熟练度与境界解锁。开炉先扣灵草/灵力，按丹方持续 18–40 分钟，结束时以悟性、鼎阶和熟练度判定成丹；高阶鼎有一炉双药概率，中断不退投入也不增加熟练度 |
 | 突破 | 开始投入本阶需求修为、20 体力及可选丹药；60 分钟完成判定。失败退回需求减去其 25% 向下取整值，中断不退投入，防止免费重试 |
 | 探索/拜访 | 当地探索 30 分钟或到达后交谈 20 分钟，完成才生成事件和更新统计 |
 | 气血耗尽救助 | 沿道路以救助速度转运至医馆，再治疗 180 分钟，无瞬移跳时，不可取消 |
@@ -68,6 +68,8 @@
 每跨入第 7、14、21… 日零点，先扣当前住处完整周租。不足则立即写入 `gameOver`，不再发放尚未完成行动的结果。若与交付或入住同刻，房租优先，不能预支配送收入；新住处仅在真正完成搬家时生效。日志使用游戏时间，`Date.now()` 仅用于存档更新时间等元数据。
 
 `seed` 随存档保存，采用 xorshift。相同种子、相同游戏时刻的指令和等量游戏时间应得到相同结果，允许浮点积分误差；创建时间与随机 ID 不属于世界随机源。
+
+炼药职业状态独立保存在 `alchemy`。药鼎不是系统远程兑换品：购买或升级必须人在长乐集，现金足够且满足鼎阶境界。炼药行动沿用统一 `activity`：开始时一次性支付丹方材料和灵力，完成时才抽成丹随机数并增加熟练度；提前停止不返还投入、不抽结果，也不增加熟练度。丹方解锁只读取熟练度与境界，界面不能自行绕过规则层。
 
 ## 配送与事件
 
@@ -91,13 +93,14 @@
 
 ```js
 {
-  schemaVersion: 5,
+  schemaVersion: 6,
   id, name, mode, createdAt, updatedAt, seed,
   turn, revision, minutes, position, location, residenceId, gameOver, transport, weather,
   activity, activeOrder, orderRefreshAt,
   player: { money, coins, health, stamina, mana, qi, realm,
             insight, constitution, agility, luck, karma, rep },
   vehicle: { battery, durability, levels: { speed, battery, durability } },
+  alchemy: { cauldron, xp, brews, successes },
   inventory, learned, equipment, stats,
   bonds: { /* 每人 met, affinity, trust, stage, path, lastTalkDay */ },
   daily, claimed, unlockedEndings, ending,
@@ -105,7 +108,7 @@
 }
 ```
 
-存储键：`night-courier:saves:v5`；仅在新键不存在时从 v4、v3 旧键显式迁移（新键的空列表不是缺失，不复活已删除存档）；上一写入备份键：`night-courier:saves:backup`。列表最多12份；每份日志最多180条，防止无界增长。
+存储键：`night-courier:saves:v6`；仅在新键不存在时从 v5、v4、v3 旧键显式迁移（新键的空列表不是缺失，不复活已删除存档）；上一写入备份键：`night-courier:saves:backup`。列表最多12份；每份日志最多180条，防止无界增长。v5 若存在正在进行的炼药行动而没有炼药字段，迁移时只补一口基础药鼎以保证该炉可继续；其他旧档默认未购鼎。
 
 `sanitizeSave()` 不把任意原始对象合并进状态，按字段白名单重建，规范数值范围，并校验人物进度、住处、破产结束状态、事件模板及待结算票据。v1–v4 只有识别到的重建字段迁移，不对未知原游戏做猜测。进行中行动按类型白名单恢复；重建合法路线，并校验当前坐标与路程一致、当地服务位置和待结算票据互斥。时间、资源、路程保留小数，不重复收取已支付成本。
 
