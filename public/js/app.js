@@ -300,6 +300,7 @@
     if(Date.now()-lastSavedAt>=10000)persist();
   }
   function frame(timestamp){
+    if(document.hidden){clock.reset();requestAnimationFrame(frame);return;}
     clock.frame(timestamp);
     if(timestamp-lastLiveAt>=100){renderLive();lastLiveAt=timestamp;}
     requestAnimationFrame(frame);
