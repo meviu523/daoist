@@ -43,8 +43,8 @@
   const nodes = G.GRID_Y.flatMap((y,r) => G.GRID_X.map((x,c) => ({x,y,c,r})));
   const links = nodes.map(a => nodes.flatMap((b,i) => {
     const adjacent=Math.abs(a.c-b.c)+Math.abs(a.r-b.r)===1;
-    const bridge=a.r===b.r && Math.min(a.c,b.c)===3;
-    return adjacent && (!bridge || [1,3,5].includes(a.r)) ? [i] : [];
+    const bridge=a.r===b.r && Math.min(a.c,b.c)===G.RIVER_LEFT_COLUMN;
+    return adjacent && (!bridge || G.BRIDGE_ROWS.includes(a.r)) ? [i] : [];
   }));
   // 途中坐标必须位于真实路段；虚拟起点连接该路段两端，不能吸附或穿江。
   G.roadAnchors = p => {
