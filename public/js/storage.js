@@ -41,7 +41,7 @@
     s.vehicle.battery=num(v.battery,cap.battery,0,cap.battery,false);s.vehicle.durability=num(v.durability,cap.durability,0,cap.durability,false);
     for(const item of G.ITEMS.filter(i=>!i.unique))s.inventory[item.id]=num(raw.inventory?.[item.id],0,0,9999);
     for(const k of Object.keys(s.stats))s.stats[k]=num(raw.stats?.[k],0,0,k==='distance'?1e10:1e7);
-    for(const npc of G.NPCS){const b=raw.bonds?.[npc.id];if(obj(b))s.bonds[npc.id]={affinity:num(b.affinity,0,0,100),trust:num(b.trust,0,0,100),stage:num(b.stage,0,0,4),path:['friend','romance'].includes(b.path)&& (b.path!=='romance'||npc.romantic)?b.path:'none',lastTalkDay:num(b.lastTalkDay,0,0,G.day(s))};}
+    for(const npc of G.NPCS){const b=raw.bonds?.[npc.id];if(obj(b)){const affinity=num(b.affinity,0,0,100),trust=num(b.trust,0,0,100),stage=num(b.stage,0,0,4),path=['friend','romance'].includes(b.path)&& (b.path!=='romance'||npc.romantic)?b.path:'none';s.bonds[npc.id]={met:b.met===true||affinity>0||trust>0||stage>0||path!=='none',affinity,trust,stage,path,lastTalkDay:num(b.lastTalkDay,0,0,G.day(s))};}}
     const d=obj(raw.daily)?raw.daily:{},day=G.day(s);
     s.daily={day,delivered:d.day===day?num(d.delivered,0):0,claimed:d.day===day&&d.claimed===true,signedDay:num(d.signedDay,0,0,day),streak:num(d.streak,0,0,day)};
     s.claimed=Array.isArray(raw.claimed)?[...new Set(raw.claimed.filter(id=>G.QUESTS.some(q=>q.id===id)))]:[];
@@ -59,6 +59,7 @@
       const p=raw.pending;if(!obj(p))throw new Error('待处理事件已损坏。');
       let base;
       const npc=G.NPCS.find(n=>n.id===p.npcId);
+      if(npc)s.bonds[npc.id].met=true;
       if(npc&&p.npcAdvance===true){const arc=npc.arc[s.bonds[npc.id].stage];if(!arc)throw new Error('人物故事进度与事件不一致。');const [title,text,...choices]=arc;base={title,text,choices:G.clone(choices),kind:'social'};}
       else if(npc){base={title:`与${npc.name}的片刻`,text:'你们继续谈起各自的近况。',choices:[{label:'分享近况',result:'你们的距离又近了一些。',effects:{affinity:5,trust:2}},{label:'认真倾听',result:'你记住了对方在意的小事。',effects:{affinity:4,trust:3}},{label:'请对方吃饭',result:'一顿热饭，让夜晚柔软了许多。',effects:{money:-12,affinity:7,stamina:8}}],kind:'social'};}
       else {base=G.EVENTS.find(e=>e.id===p.templateId);if(!base)throw new Error('无法识别待处理事件，请使用备份恢复。');base=G.clone(base);}
