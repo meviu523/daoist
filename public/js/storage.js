@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v5';
-  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v4';
-  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v3'];
+  G.STORAGE_KEY = 'night-courier:saves:v6';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v5';
+  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v4','night-courier:saves:v3'];
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -49,7 +49,7 @@
       if(!['breath','meditate','body'].includes(p.kind))throw new Error('修炼方式无效。');params.kind=p.kind;duration=p.kind==='meditate'?90:p.kind==='body'?30:45;
     }
     if(kind==='alchemy'){
-      if(!['heal','qi'].includes(p.recipe))throw new Error('丹方无效。');params.recipe=p.recipe;duration=p.recipe==='heal'?20:25;
+      const recipe=G.alchemyRecipe(p.recipe);if(!recipe)throw new Error('丹方无效。');params.recipe=recipe.id;duration=recipe.duration;
     }
     if(kind==='upgrade'){
       if(!['speed','battery','durability'].includes(p.kind)||s.vehicle.levels[p.kind]>=5)throw new Error('升级行动无效。');params.kind=p.kind;
@@ -98,7 +98,7 @@
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3,4,5].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4,5,6].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
@@ -130,6 +130,14 @@
     for(const k of ['health','stamina','mana'])s.player[k]=num(raw.player[k],cap[k],0,cap[k],false);
     s.vehicle.battery=num(v.battery,cap.battery,0,cap.battery,false);s.vehicle.durability=num(v.durability,cap.durability,0,cap.durability,false);
     for(const item of G.ITEMS.filter(i=>!i.unique))s.inventory[item.id]=num(raw.inventory?.[item.id],0,0,9999);
+    const al=obj(raw.alchemy)?raw.alchemy:{};
+    s.alchemy={
+      cauldron:num(al.cauldron,version<=5&&raw.activity?.kind==='alchemy'?1:0,0,G.CAULDRONS.length-1),
+      xp:num(al.xp,0,0,999999),
+      brews:num(al.brews,0,0,999999),
+      successes:num(al.successes,0,0,999999)
+    };
+    if(s.alchemy.successes>s.alchemy.brews)s.alchemy.successes=s.alchemy.brews;
     for(const k of Object.keys(s.stats))s.stats[k]=num(raw.stats?.[k],0,0,k==='distance'?1e10:1e7,k!=='distance');
     for(const npc of G.NPCS){const b=raw.bonds?.[npc.id];if(obj(b)){const affinity=num(b.affinity,0,0,100),trust=num(b.trust,0,0,100),stage=num(b.stage,0,0,4),path=['friend','romance'].includes(b.path)&& (b.path!=='romance'||npc.romantic)?b.path:'none';s.bonds[npc.id]={met:b.met===true||affinity>0||trust>0||stage>0||path!=='none',affinity,trust,stage,path,lastTalkDay:num(b.lastTalkDay,0,0,G.day(s))};}}
     const d=obj(raw.daily)?raw.daily:{},day=G.day(s);
