@@ -2,7 +2,8 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v3';
+  G.STORAGE_KEY = 'night-courier:saves:v4';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v3';
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -20,13 +21,18 @@
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
     s.id=cleanId(raw.id);s.createdAt=num(raw.createdAt,Date.now(),0,1e15);s.updatedAt=num(raw.updatedAt,Date.now(),0,1e15);
     s.minutes=num(raw.minutes,480,0,1e8);s.turn=num(raw.turn,0,0,1e8);s.seed=num(raw.seed,1,1,4294967295);
     s.position=G.place(raw.position)?raw.position:'home';s.transport=raw.transport==='walk'?'walk':'bike';
+    s.residenceId=G.residence(raw.residenceId)?.id||'qingteng';
+    if(obj(raw.gameOver)&&raw.gameOver.reason==='rent'){
+      const home=G.residence(raw.gameOver.residenceId)||G.residence(s.residenceId);
+      s.gameOver={reason:'rent',day:num(raw.gameOver.day,G.day(s),1,999999),residenceId:home.id,rent:home.rent,money:num(raw.gameOver.money,s.player.money,0,9999999)};
+    }else s.gameOver=null;
     s.weather=G.WEATHER.some(w=>w.id===raw.weather)?raw.weather:'clear';
     s.learned=Array.isArray(raw.learned)?[...new Set(raw.learned.filter(id=>G.ITEMS.some(i=>i.id===id&&i.type==='technique')))]:[];
     s.equipment=Array.isArray(raw.equipment)?[...new Set(raw.equipment.filter(id=>G.ITEMS.some(i=>i.id===id&&i.type==='equipment')))]:[];
@@ -69,7 +75,7 @@
       if(s.mode==='classic')s.pending.aiStatus='skip';
     }
     s.schemaVersion=G.VERSION;
-    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}，角色与电动车升级已保留。`,'存档');
+    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}，角色、电动车与既有进度已保留；旧档默认住在青藤小屋。`,'存档');
     return s;
   };
   G.parseImport = text => {
@@ -86,7 +92,14 @@
     function load(){
       if(dirty)return cache;
       if(!storage){warning='浏览器不允许本地存储。当前进度只保留在本页，请及时导出存档。';return cache;}
-      try{cache=readKey(G.STORAGE_KEY);}
+      try{
+        cache=readKey(G.STORAGE_KEY);
+        if(!cache.length&&storage.getItem(G.LEGACY_STORAGE_KEY)){
+          cache=readKey(G.LEGACY_STORAGE_KEY);
+          const migrated=persist(cache);
+          if(migrated.ok)warning='已将本机 v3 存档升级到 v4：新增住处与房租规则，原有存档默认住青藤小屋。';
+        }
+      }
       catch(e){try{const backup=storage.getItem(G.BACKUP_KEY);if(!backup)throw new Error('没有备份');cache=readKey(G.BACKUP_KEY);warning='主存档损坏，已读取上一次自动备份。请先导出保存。';}catch{warning='本地存档无法读取；没有覆盖原始数据。可以导入外部备份。';}}
       return cache;
     }
