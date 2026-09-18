@@ -262,7 +262,7 @@ with sync_playwright() as p:
     assert craft.locator('[data-act="alchemy"][data-recipe="heal"]').is_enabled()
     assert not craft.locator('[data-act="alchemy"][data-recipe="qi"]').is_enabled()
     craft.click('[data-act="alchemy"][data-recipe="heal"]')
-    toggle(craft);craft.select_option('#time-speed', '10');pump(craft, 2200)
+    craft.select_option('#time-speed', '10');pump(craft, 2200)
     brewed = current(craft)
     assert brewed['alchemy']['brews'] == 1 and brewed['alchemy']['xp'] >= 1
     assert brewed['inventory']['herb'] == 9
