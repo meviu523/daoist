@@ -11,29 +11,34 @@
       this.observer=new ResizeObserver(()=>{const w=el.clientWidth,h=el.clientHeight;if(!w||!h)return;if(!this.width){this.width=w;this.height=h;if(w<800&&this.s)this.center();else this.fit();}else{this.tx+=(w-this.width)/2;this.ty+=(h-this.height)/2;this.width=w;this.height=h;this.transform();}});this.observer.observe(el);
     }
     buildBase(){
-      let h='<rect x="-2000" y="-2000" width="6000" height="5000" fill="#122727"/><rect x="30" y="30" width="1640" height="1080" rx="95" fill="#193130"/>';
-      h+='<path d="M1220 20Q1460-30 1690 200L1650 550 1450 465 1190 305Z" fill="#233e32"/><path d="M1220 20Q1460-30 1690 200L1650 550 1450 465 1190 305Z" fill="url(#park-lines)"/>';
-      h+='<path d="M946-90C885 160 1034 322 955 505S1000 787 952 936 967 1170 1010 1230L1100 1230C1040 960 1082 922 1063 786S1021 540 1080 379 1025 66 1070-90Z" fill="#143b3e"/><path d="M946-90C885 160 1034 322 955 505S1000 787 952 936 967 1170 1010 1230L1100 1230C1040 960 1082 922 1063 786S1021 540 1080 379 1025 66 1070-90Z" fill="url(#water-lines)"/>';
-      // 所有画出的道路均与寻路算法使用同一套网格。
-      let roads='';for(const x of G.GRID_X)roads+=`M${x} 55V1080`;
-      for(const [r,y]of G.GRID_Y.entries())roads+=`M55 ${y}H850${[1,3,5].includes(r)?`H1645`:`M1090 ${y}H1645`}`;
+      const worldW=G.WORLD.width,worldH=G.WORLD.height;
+      const leftX=G.GRID_X[G.RIVER_LEFT_COLUMN],rightX=G.GRID_X[G.RIVER_LEFT_COLUMN+1],roadEnd=G.GRID_X.at(-1)+75;
+      let h=`<rect x="-2000" y="-2000" width="${worldW+4000}" height="${worldH+4000}" fill="#122727"/><rect x="30" y="30" width="${worldW-60}" height="${worldH-60}" rx="95" fill="#193130"/>`;
+      h+=`<path d="M${rightX+130} 20Q${worldW-260}-30 ${worldW-30} 200L${worldW-70} 560 ${rightX+360} 465 ${rightX+100} 305Z" fill="#233e32"/><path d="M${rightX+130} 20Q${worldW-260}-30 ${worldW-30} 200L${worldW-70} 560 ${rightX+360} 465 ${rightX+100} 305Z" fill="url(#park-lines)"/>`;
+      const riverLeft=leftX+96,riverRight=rightX+10;
+      h+=`<path d="M${riverLeft}-90C${riverLeft-60} 180 ${riverLeft+85} 340 ${riverLeft+8} 545S${riverLeft+52} 860 ${riverLeft+6} 1060S${riverLeft+32} ${worldH-70} ${riverLeft+65} ${worldH+90}L${riverRight+70} ${worldH+90}C${riverRight+10} ${worldH-160} ${riverRight+70} ${worldH-350} ${riverRight+25} ${worldH-520}S${riverRight-20} 730 ${riverRight+38} 470 ${riverRight-28} 120 ${riverRight+25}-90Z" fill="#143b3e"/><path d="M${riverLeft}-90C${riverLeft-60} 180 ${riverLeft+85} 340 ${riverLeft+8} 545S${riverLeft+52} 860 ${riverLeft+6} 1060S${riverLeft+32} ${worldH-70} ${riverLeft+65} ${worldH+90}L${riverRight+70} ${worldH+90}C${riverRight+10} ${worldH-160} ${riverRight+70} ${worldH-350} ${riverRight+25} ${worldH-520}S${riverRight-20} 730 ${riverRight+38} 470 ${riverRight-28} 120 ${riverRight+25}-90Z" fill="url(#water-lines)"/>`;
+      // 所有画出的道路与寻路算法共用同一套网格和桥梁规则。
+      let roads='';for(const x of G.GRID_X)roads+=`M${x} 55V${G.GRID_Y.at(-1)+60}`;
+      for(const [r,y]of G.GRID_Y.entries())roads+=`M55 ${y}H${leftX}${G.BRIDGE_ROWS.includes(r)?`H${roadEnd}`:`M${rightX} ${y}H${roadEnd}`}`;
       h+=`<path d="${roads}" fill="none" stroke="#102222" stroke-width="43" stroke-linecap="round"/><path d="${roads}" fill="none" stroke="#304644" stroke-width="30" stroke-linecap="round"/><path d="${roads}" fill="none" stroke="#a1b2a0" stroke-opacity=".15" stroke-width="1.2" stroke-dasharray="8 12"/>`;
-      for(const y of [300,660,1020])h+=`<path d="M912 ${y-18}H1080M912 ${y+18}H1080" stroke="#839185" stroke-opacity=".7" stroke-width="3"/>`;
-      for(let r=0;r<5;r++)for(let c=0;c<6;c++){
-        if(c===3)continue;const x=G.GRID_X[c]+30,y=G.GRID_Y[r]+30,w=180,hh=120;
-        if((c===4&&r===3)||(c===5&&r===0)){
+      for(const r of G.BRIDGE_ROWS){const y=G.GRID_Y[r];h+=`<path d="M${leftX+62} ${y-18}H${rightX-10}M${leftX+62} ${y+18}H${rightX-10}" stroke="#839185" stroke-opacity=".7" stroke-width="3"/>`;}
+      for(let r=0;r<G.GRID_Y.length-1;r++)for(let c=0;c<G.GRID_X.length-1;c++){
+        if(c===G.RIVER_LEFT_COLUMN)continue;
+        const x=G.GRID_X[c]+30,y=G.GRID_Y[r]+30,w=G.GRID_X[c+1]-G.GRID_X[c]-60,hh=G.GRID_Y[r+1]-G.GRID_Y[r]-60;
+        const park=(c===4&&r===3)||(c===5&&r===0)||(c===6&&r===5)||(c===7&&r===1)||(c===1&&r===6);
+        if(park){
           h+=`<rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="25" fill="#284838"/><rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="25" fill="url(#park-lines)"/>`;
-          for(let j=0;j<6;j++)h+=`<circle cx="${x+20+j*28}" cy="${y+40+(j%2)*37}" r="${11+j%3*3}" fill="#42634d" opacity=".7"/>`;
+          for(let j=0;j<6;j++)h+=`<circle cx="${x+20+j*Math.max(18,(w-35)/6)}" cy="${y+38+(j%2)*Math.max(28,hh*.3)}" r="${11+j%3*3}" fill="#42634d" opacity=".7"/>`;
         }else{
-          const cols=['#2a4240','#2d4542','#30473f','#263f40'];
-          for(let j=0;j<4;j++){const bx=x+(j%2)*91,by=y+Math.floor(j/2)*61;h+=`<rect x="${bx+3}" y="${by+4}" width="76" height="46" rx="5" fill="#0e2425" opacity=".4"/><rect x="${bx}" y="${by}" width="76" height="46" rx="5" fill="${cols[(r+c+j)%4]}" stroke="#789084" stroke-opacity=".15"/><path d="M${bx+12} ${by+14}H${bx+64}M${bx+12} ${by+29}H${bx+64}" stroke="#8ba397" stroke-opacity=".1" stroke-width="2"/>`;}
+          const cols=['#2a4240','#2d4542','#30473f','#263f40'],bw=(w-15)/2,bh=(hh-15)/2;
+          for(let j=0;j<4;j++){const bx=x+(j%2)*(bw+15),by=y+Math.floor(j/2)*(bh+15);h+=`<rect x="${bx+3}" y="${by+4}" width="${bw}" height="${bh}" rx="5" fill="#0e2425" opacity=".4"/><rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="5" fill="${cols[(r+c+j)%4]}" stroke="#789084" stroke-opacity=".15"/><path d="M${bx+12} ${by+Math.max(13,bh*.3)}H${bx+bw-12}M${bx+12} ${by+Math.max(26,bh*.62)}H${bx+bw-12}" stroke="#8ba397" stroke-opacity=".1" stroke-width="2"/>`;}}
         }
       }
       const tree=(x,y,r)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="#375441" stroke="#587562" stroke-opacity=".3"/>`;
-      for(let i=0;i<28;i++){h+=tree(65+(i*239)%1580,55+(i*277)%1000,5+i%4);}
-      h+='<g fill="#a9bbad" font-family="system-ui, sans-serif" font-size="17" letter-spacing="7" opacity=".42"><text x="198" y="245">旧 城 里</text><text x="652" y="440">长 乐 坊</text><text x="1260" y="425">临 江 新 城</text><text x="180" y="968">南 市</text><text x="1220" y="915">月 渡</text></g>';
-      h+='<text x="1006" y="563" text-anchor="middle" fill="#759996" opacity=".6" font-size="16" letter-spacing="7" transform="rotate(86 1006 563)">青 岚 江</text>';
-      h+='<g transform="translate(1580 70)" fill="none" stroke="#869d8f" opacity=".65"><path d="M0 38V-8M-8 12 0-8 8 12"/><text y="-19" text-anchor="middle" fill="#a0b0a3" stroke="none" font-size="12">N</text></g>';
+      for(let i=0;i<46;i++)h+=tree(65+(i*239)%(worldW-120),55+(i*277)%(worldH-110),5+i%4);
+      h+='<g fill="#a9bbad" font-family="system-ui, sans-serif" font-size="17" letter-spacing="7" opacity=".42"><text x="198" y="245">旧 城 里</text><text x="652" y="440">长 乐 坊</text><text x="1260" y="425">临 江 新 城</text><text x="180" y="968">南 市</text><text x="1220" y="915">月 渡</text><text x="1680" y="300">东 港</text><text x="1640" y="1110">云 栖 新 区</text><text x="370" y="1325">南 渡</text></g>';
+      h+=`<text x="${(leftX+rightX)/2}" y="${worldH/2}" text-anchor="middle" fill="#759996" opacity=".6" font-size="16" letter-spacing="7" transform="rotate(86 ${(leftX+rightX)/2} ${worldH/2})">青 岚 江</text>`;
+      h+=`<g transform="translate(${worldW-120} 70)" fill="none" stroke="#869d8f" opacity=".65"><path d="M0 38V-8M-8 12 0-8 8 12"/><text y="-19" text-anchor="middle" fill="#a0b0a3" stroke="none" font-size="12">N</text></g>`;
       this.el.querySelector('.base-layer').innerHTML=h;
     }
     point(p,order){
