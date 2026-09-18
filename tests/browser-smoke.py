@@ -360,6 +360,26 @@ with sync_playwright() as p:
     assert stored(expanded)['player']['money'] == 112
     record('充电界面 10 分钟/¥8，与实际进度、暂停和多次读档一致')
 
+    # Offer points show a shrinking ring and animate both entry and removal.
+    now = current(expanded)['minutes']
+    fleeting = {'id':'fleeting-offer','target':'lingxi-20','title':'短驻热饭','desc':'这张单很快会从地图消失。','condition':'urgent','expiresAt':now+.25,'reward':30,'coins':2,'npc':None}
+    fixture(expanded, {'orders':[fleeting], 'activeOrder':None, 'activity':None, 'pending':None})
+    offer = expanded.locator('.order-point[data-order-id="fleeting-offer"]')
+    assert offer.count() == 1
+    assert offer.locator('.order-expiry-ring').count() == 1
+    assert expanded.evaluate("""()=>getComputedStyle(document.querySelector('.order-point[data-order-id="fleeting-offer"] .point-visual')).animationName""") == 'orderPointIn'
+    ring_before = float(offer.locator('.order-expiry-ring').get_attribute('stroke-dashoffset'))
+    toggle(expanded);pump(expanded, 120);toggle(expanded)
+    ring_after = float(offer.locator('.order-expiry-ring').get_attribute('stroke-dashoffset'))
+    assert ring_after > ring_before
+    toggle(expanded);pump(expanded, 180);toggle(expanded)
+    assert expanded.locator('.order-leaving').count() == 1
+    assert expanded.evaluate("""()=>getComputedStyle(document.querySelector('.order-leaving .point-visual')).animationName""") == 'orderPointOut'
+    expanded.wait_for_timeout(350)
+    assert expanded.locator('.order-leaving').count() == 0
+    assert expanded.locator('[data-place="lingxi-20"]').count() == 0
+    record('配送点用圆形进度显示消失时间，并在出现与消失时播放动画')
+
     # Exercise an actual new district order, not a permanent destination marker.
     now = current(expanded)['minutes']
     ticket = {'id':'new-zone-test','target':'lingxi-20','title':'山麓热饭','desc':'请送到门口。','condition':'ordinary','expiresAt':now+80,'reward':50,'coins':4,'npc':None}

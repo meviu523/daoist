@@ -53,14 +53,48 @@
       h+=`<g transform="translate(${width-85} 70)" fill="none" stroke="#869d8f" opacity=".65"><path d="M0 38V-8M-8 12 0-8 8 12"/><text y="-19" text-anchor="middle" fill="#a0b0a3" stroke="none" font-size="12">北</text></g>`;
       this.el.querySelector('.base-layer').innerHTML=h;
     }
-    point(p,order){
-      const active=!!order,fill=active?'#e3bd75':'#d2dfc8',glyph=active?'delivery':p.kind,w=p.name.length*13+22;
-      return `<g class="map-point ${active?'order-point':'service-point'} ${this.selected===p.id?'selected':''}" transform="translate(${p.x} ${p.y})" data-place="${escape(p.id)}" role="button" tabindex="0" aria-label="${escape(p.name)}${active?'，可接配送任务':''}"><circle class="point-halo" r="28" fill="${fill}" opacity=".10"/><circle r="19" fill="#182e2c" stroke="${fill}" stroke-width="1.8" filter="url(#point-shadow)"/><path d="${shape[glyph]||shape.delivery}" fill="none" stroke="${fill}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="${-w/2}" y="27" width="${w}" height="24" rx="7" fill="#132a28" fill-opacity=".94"/><text y="43" text-anchor="middle" fill="${fill}" font-size="12.5" font-family="system-ui,sans-serif">${escape(p.name)}</text>${active?`<circle cx="16" cy="-16" r="7" fill="#e3bd75"/><text x="16" y="-13" text-anchor="middle" fill="#273b33" font-size="9" font-weight="700">${order.coins}</text>`:''}</g>`;
+    offerProgress(s,order){return G.clamp(G.orderOfferRemaining(s,order)/G.orderOfferLifetime(order),0,1);}
+    point(p,order,status='service',enter=false){
+      const task=status!=='service',offer=status==='offer',fill=task?'#e3bd75':'#d2dfc8',glyph=task?'delivery':p.kind,w=p.name.length*13+22,circ=150.8;
+      const ratio=offer?this.offerProgress(this.s,order):1,dash=(circ*(1-ratio)).toFixed(2);
+      const aria=offer?`${p.name}，可接配送任务，${G.durationText(G.orderOfferRemaining(this.s,order))}后消失`:status==='active'?`${p.name}，已接配送订单，无送达时限`:p.name;
+      const ring=offer?`<circle class="order-expiry-track" r="24"/><circle class="order-expiry-ring" r="24" stroke-dasharray="${circ}" stroke-dashoffset="${dash}"/>`:'';
+      return `<g class="map-point ${offer?'order-point':status==='active'?'active-order-point':'service-point'} ${this.selected===p.id?'selected':''}" transform="translate(${p.x} ${p.y})" data-key="${escape(p.id)}" data-status="${status}" data-order-id="${order?escape(order.id):''}" data-place="${escape(p.id)}" role="button" tabindex="0" aria-label="${escape(aria)}"><g class="point-visual ${offer&&enter?'order-entering':''}"><circle class="point-halo" r="29" fill="${fill}" opacity=".10"/>${ring}<circle class="point-core" r="19" fill="#182e2c" stroke="${fill}" stroke-width="1.8" filter="url(#point-shadow)"/><path d="${shape[glyph]||shape.delivery}" fill="none" stroke="${fill}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="${-w/2}" y="27" width="${w}" height="24" rx="7" fill="#132a28" fill-opacity=".94"/><text y="43" text-anchor="middle" fill="${fill}" font-size="12.5" font-family="system-ui,sans-serif">${escape(p.name)}</text>${task?`<circle cx="16" cy="-16" r="7" fill="#e3bd75"/><text x="16" y="-13" text-anchor="middle" fill="#273b33" font-size="9" font-weight="700">${order.coins}</text>`:''}</g></g>`;
+    }
+    removePoint(node){
+      if(node.classList.contains('order-leaving'))return;
+      node.classList.add('order-leaving');node.removeAttribute('data-place');node.setAttribute('tabindex','-1');node.setAttribute('aria-hidden','true');
+      const remove=()=>{if(node.isConnected)node.remove();};
+      if(root.matchMedia?.('(prefers-reduced-motion: reduce)').matches){remove();return;}
+      node.addEventListener('animationend',remove,{once:true});root.setTimeout(remove,420);
+    }
+    updateOrders(s){
+      const circ=150.8,byId=new Map(s.orders.map(o=>[o.id,o]));
+      for(const node of this.el.querySelectorAll('.order-point[data-order-id]')){
+        const order=byId.get(node.dataset.orderId);if(!order)continue;
+        const ratio=this.offerProgress(s,order),ring=node.querySelector('.order-expiry-ring');
+        if(ring)ring.setAttribute('stroke-dashoffset',(circ*(1-ratio)).toFixed(2));
+        const p=G.place(order.target);node.setAttribute('aria-label',`${p.name}，可接配送任务，${G.durationText(G.orderOfferRemaining(s,order))}后消失`);
+      }
     }
     render(s){
       this.s=s;if(!s)return;this.el.dataset.night=String(G.isNight(s));
-      const live=new Set([...G.PLACES.filter(p=>p.permanent).map(p=>p.id),...s.orders.map(o=>o.target),...(s.activeOrder?[s.activeOrder.target]:[]) ]);
-      this.el.querySelector('.points-layer').innerHTML=[...live].map(id=>this.point(G.place(id),s.activeOrder?.target===id?s.activeOrder:s.orders.find(o=>o.target===id))).join('');
+      const desired=new Map(G.PLACES.filter(p=>p.permanent).map(p=>[p.id,{p,order:null,status:'service'}]));
+      for(const order of s.orders)desired.set(order.target,{p:G.place(order.target),order,status:'offer'});
+      if(s.activeOrder)desired.set(s.activeOrder.target,{p:G.place(s.activeOrder.target),order:s.activeOrder,status:'active'});
+      const layer=this.el.querySelector('.points-layer'),seen=new Set();
+      for(const node of [...layer.querySelectorAll('.map-point:not(.order-leaving)')]){
+        const id=node.dataset.key,d=desired.get(id);
+        if(!d){if(['offer','active'].includes(node.dataset.status))this.removePoint(node);else node.remove();continue;}
+        const sameOrder=(node.dataset.orderId||'')===(d.order?.id||'');
+        if(node.dataset.status!==d.status||!sameOrder){
+          if(['offer','active'].includes(node.dataset.status)&&d.status!=='active')this.removePoint(node);else node.remove();
+          layer.insertAdjacentHTML('beforeend',this.point(d.p,d.order,d.status,d.status==='offer'));
+        }else node.classList.toggle('selected',this.selected===id);
+        seen.add(id);
+      }
+      for(const [id,d] of desired)if(!seen.has(id)&&!layer.querySelector(`.map-point:not(.order-leaving)[data-key="${id}"]`))layer.insertAdjacentHTML('beforeend',this.point(d.p,d.order,d.status,d.status==='offer'));
+      this.updateOrders(s);
       const player=G.playerPoint(s);
       this.el.querySelector('.player-layer').innerHTML=`<g class="player-marker" transform="translate(${player.x} ${player.y-39})" role="img" aria-label="玩家${escape(s.name)}位于${escape(G.locationName(s))}"><circle class="player-pulse" r="20" fill="#8cd6c4" opacity=".16"/><path d="M-8 9 0 18 8 9" fill="#8ad1bd"/><circle r="12" fill="#a6e5cd" stroke="#133c34" stroke-width="3"/><circle cy="-3" r="3" fill="#244a3f"/><path d="M-5 6Q0-2 5 6" fill="#244a3f"/></g>`;
       this.renderTrail();
@@ -85,7 +119,7 @@
       this.s=s;const marker=this.el.querySelector('.player-marker');if(!marker)return this.render(s);
       const p=G.playerPoint(s);marker.setAttribute('transform',`translate(${p.x} ${p.y-39})`);
       marker.setAttribute('aria-label',`玩家${s.name}位于${G.locationName(s)}`);
-      this.el.dataset.night=String(G.isNight(s));this.renderTrail();
+      this.el.dataset.night=String(G.isNight(s));this.updateOrders(s);this.renderTrail();
     }
     select(id){this.selected=id;this.render(this.s);}
     fitScale(){return Math.max(.01,Math.min(this.el.clientWidth/G.WORLD.width,Math.max(1,this.el.clientHeight-95)/G.WORLD.height)*.97);}
