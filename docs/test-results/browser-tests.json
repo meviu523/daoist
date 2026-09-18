@@ -1,0 +1,51 @@
+{
+  "mode": "offline-render-with-storage-and-ai-mocks",
+  "tests": [
+    {
+      "name": "桌面开局、顶部玩家姓名、动态地图标记",
+      "passed": true
+    },
+    {
+      "name": "地图接单、移动、三选项事件和延后结算",
+      "passed": true
+    },
+    {
+      "name": "远程系统签到、即时兑换且不耗时",
+      "passed": true
+    },
+    {
+      "name": "两份独立存档与开始页重新载入",
+      "passed": true
+    },
+    {
+      "name": "夜间修炼界面、按钮缩放与鼠标平移",
+      "passed": true
+    },
+    {
+      "name": "桌面流程无 JavaScript 运行时异常",
+      "passed": true
+    },
+    {
+      "name": "390px 手机布局、导航与可滚动系统面板",
+      "passed": true
+    },
+    {
+      "name": "双指缩放不误触任务标记",
+      "passed": true
+    },
+    {
+      "name": "手机流程无 JavaScript 运行时异常",
+      "passed": true
+    },
+    {
+      "name": "AI 模式成功接收有界事件（模拟接口）",
+      "passed": true
+    },
+    {
+      "name": "提前选择经典事件后，迟到 AI 回包不会覆盖状态",
+      "passed": true
+    }
+  ],
+  "passed": 11,
+  "failed": 0
+}

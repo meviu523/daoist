@@ -1,0 +1,16 @@
+{
+  "name": "night-courier-reborn",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "白天送外卖，夜里修仙。根据项目对话记录重新实现的单机 Web RPG。",
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "node --check server.mjs && node --check public/js/data.js && node --check public/js/engine.js && node --check public/js/storage.js && node --check public/js/map.js && node --check public/js/app.js"
+  }
+}
