@@ -250,6 +250,7 @@ with sync_playwright() as p:
     craft.click('[data-ui="home"]')
     craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.position='market';s.location=null;s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
     craft.locator('[data-ui="load"]').first.click()
+    toggle(craft)
     craft.locator('.game-nav [data-panel="cultivation"]').click()
     assert '尚未购鼎' in craft.locator('#panel').inner_text()
     assert craft.locator('[data-act="cauldron"]').is_enabled()
