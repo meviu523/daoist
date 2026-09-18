@@ -70,15 +70,15 @@ test('10 分钟充电不随时间切片改变收益、随机数或订单',()=>{
   near(a.minutes,b.minutes);near(a.vehicle.battery,b.vehicle.battery);assert.equal(a.seed,b.seed);
   assert.deepEqual(a.orders,b.orders);assert.equal(b.activity,null);
 });
-test('110 个路网节点与地点一一对应，新增 68 个动态地址分布于五个片区',()=>{
-  assert.equal(G.GRID_X.length,11);assert.equal(G.GRID_Y.length,10);assert.equal(G.PLACES.length,110);
-  assert.equal(G.WORLD.width,2660);assert.equal(G.WORLD.height,1860);assert.equal(G.WORLD.metersPerUnit,3.5);
-  assert.equal(new Set(G.PLACES.map(p=>`${p.x}:${p.y}`)).size,110);
-  assert.equal(new Set(G.PLACES.map(p=>p.name)).size,110);
-  const added=G.PLACES.filter(p=>!legacyIds.includes(p.id));assert.equal(added.length,68);
+test('99 个路网节点与地点一一对应，新增 57 个动态地址分布于四个片区',()=>{
+  assert.equal(G.GRID_X.length,11);assert.equal(G.GRID_Y.length,9);assert.equal(G.PLACES.length,99);
+  assert.equal(G.WORLD.width,2660);assert.equal(G.WORLD.height,1680);assert.equal(G.WORLD.metersPerUnit,3.5);
+  assert.equal(new Set(G.PLACES.map(p=>`${p.x}:${p.y}`)).size,99);
+  assert.equal(new Set(G.PLACES.map(p=>p.name)).size,99);
+  const added=G.PLACES.filter(p=>!legacyIds.includes(p.id));assert.equal(added.length,57);
   assert.ok(added.every(p=>!p.permanent&&p.kind==='delivery'&&p.desc));
   for(const p of G.PLACES){assert.equal(G.roadAnchors(p).length,1);assert.ok(p.x>0&&p.x<G.WORLD.width&&p.y>0&&p.y<G.WORLD.height);}
-  assert.deepEqual(G.DISTRICTS.map(d=>added.filter(p=>p.district===d.id).length),[12,12,12,21,11]);
+  assert.deepEqual(G.DISTRICTS.map(d=>added.filter(p=>p.district===d.id).length),[12,12,12,21]);
 });
 // Golden digests computed from main a4e26ad before editing, using exact id/name/
 // coordinates and the complete Dijkstra routes. Protect real v5 in-flight saves.
