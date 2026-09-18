@@ -3,12 +3,12 @@
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
   G.VERSION = 7;
-  G.APP_VERSION = '1.3.0';
+  G.APP_VERSION = '1.3.1';
   G.TITLE = '外卖修仙录';
   // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050, 2290, 2530];
-  G.GRID_Y = [120, 300, 480, 660, 840, 1020, 1200, 1380, 1560];
-  G.WORLD = { width: 2660, height: 1680, metersPerUnit: 3.5 };
+  G.GRID_Y = [120, 300, 480, 660, 840, 1020, 1200, 1380, 1560, 1740];
+  G.WORLD = { width: 2660, height: 1860, metersPerUnit: 3.5 };
   G.CHARGE = Object.freeze({ minutes: 10, cost: 8 });
   G.ROAD_LAYOUT = { riverColumn: 3, bridgeRows: [1, 3, 5, 7] };
   G.ROAD_NODES = G.GRID_Y.flatMap((y,r) => G.GRID_X.map((x,c) => ({x,y,c,r})));
@@ -46,6 +46,10 @@
     {id:'lingxi',name:'灵溪山麓',cols:[4,5,6,7,8,9,10],rows:[6,7,8],label:{x:1810,y:1495},desc:'山脚的茶舍与民居逐水而建，灯火一直延伸到竹林边。',
       names:['灵溪入口','云栈民宿','青竹工坊','栖鹤村','茶山书屋','灵溪药圃','听泉山庄','清溪客舍','石桥人家','松间茶舍','半山学堂','竹海小筑','望岫台','雨后花房','归山院','流泉居','踏云亭','山南老街','听松楼','白石小院','问山茶坊']}
   ];
+
+  // 在已发布的 99 个地址后追加南岸，不重排任何既有 ID。
+  G.DISTRICTS.push({id:'southbank',name:'南岸新街',cols:[0,1,2,3,4,5,6,7,8,9,10],rows:[9],label:{x:1550,y:1810},desc:'沿江向南，新的归家路与夜市在这里延伸。',
+    names:['柳岸人家','南桥集市','橘井巷','春水茶坊','湖心书屋','云麓别院','竹溪社区','青山学院','芳草新村','朝阳厂区','南岸书院']});
   for (const district of G.DISTRICTS) {
     let index=0;
     for (const r of district.rows) for (const c of district.cols) {
