@@ -99,7 +99,7 @@
           body+=`<div class="stack">${localActions[p.id]||''}</div>`;
         }
         const npc=G.NPCS.find(n=>n.place===p.id);if(npc&&s.bonds[npc.id]?.met)body+=`<div style="margin-top:12px">${btn(`拜访${esc(npc.name)}`,`data-act="visit" data-id="${npc.id}"${disabled(s.bonds[npc.id].lastTalkDay===G.day(s))}`,'wide')}</div>`;
-        else if(!orders.length)body+='<p class="copy" style="margin-top:16px">这里暂时没有订单，下一次行动后可查看新的配送点。</p>';
+        }else if(!orders.length)body+='<p class="copy" style="margin-top:16px">这里暂时没有订单，下一次行动后可查看新的配送点。</p>';
         foot='无需前往取餐点。确认接单后，直接从当前位置配送。';break;
       }
       case 'character':{
