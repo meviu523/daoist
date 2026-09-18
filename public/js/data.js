@@ -176,7 +176,7 @@
     {id:'heal',name:'回春丹',type:'pill',cost:4,desc:'气血恢复 40。',effect:{health:40},glyph:'药'},
     {id:'stamina',name:'清心散',type:'pill',cost:4,desc:'体力恢复 35。',effect:{stamina:35},glyph:'散'},
     {id:'mana',name:'灵石',type:'pill',cost:3,desc:'灵力恢复 30。',effect:{mana:30},glyph:'石'},
-    {id:'herb',name:'青灵草',type:'material',cost:2,desc:'炼丹材料，也可用来帮助朋友。',glyph:'草'},
+    {id:'herb',name:'青灵草',type:'material',cost:2,desc:'炼药材料，也可用来帮助朋友。',glyph:'草'},
     {id:'fragment',name:'阵心碎玉',type:'material',cost:8,desc:'收集三枚，才有机会重新点亮护城阵。',glyph:'玉'},
     {id:'charm',name:'护身符',type:'material',cost:8,desc:'突破失败时自动消耗，免除气血损失。',glyph:'符'},
     {id:'foundation',name:'破境丹',type:'material',cost:16,desc:'突破时可选择消耗，成功率 +15%。',glyph:'境'},
