@@ -2,7 +2,7 @@
 
 ## 模块关系
 
-程序使用原生 JavaScript IIFE，各模块向 `globalThis.NightCourier` 注册数据和函数。浏览器加载顺序：`data → engine → storage → map → app`。服务端只导入 data/engine 做共享内容校验，不访问 DOM 或浏览器存储。
+程序使用原生 JavaScript IIFE，各模块向 `globalThis.NightCourier` 注册数据和函数。浏览器加载顺序：`data → engine → storage → progression → map → app`。服务端只导入 data/engine 做共享内容校验，不访问 DOM 或浏览器存储。
 
 ```text
 玩家点击 / 地图交互
@@ -28,7 +28,7 @@ engine.perform(旧状态, 行动, 参数)
 
 ## 规则引擎与事务边界
 
-`G.perform(original, action, payload)` 先复制状态；`must()` 不通过时返回原状态，避免时间已扣而电量不足等部分写入。界面不负责改余额、位置或境界，只提交行动。
+`engine.js` 的基础 `G.perform(original, action, payload)` 先复制状态；`must()` 不通过时返回原状态，避免时间已扣而电量不足等部分写入。`progression.js` 在不改动基础结算公式的前提下包裹 `G.perform`，只负责系统解锁校验与“行动成功后是否触发关键主线”的判定。界面不负责改余额、位置或境界，只提交行动。
 
 支持的行动包括旅行、配送、选择事件、修炼、突破、炼丹、探索、拜访、歇息、睡眠、交通方式切换、充电、修车、升级、兑换、服用物品、签到、领取委托和选择/继续结局。精确名称与参数以 `engine.js` 的 switch 为准。
 
@@ -53,6 +53,10 @@ engine.perform(旧状态, 行动, 参数)
 处理事件期间禁止其他世界行动。重复旧事件ID、旧订单ID或多次点击不能重发奖励。每个关键人物章节都至少有一个零金钱/灵力/道具成本的选项，避免把玩家困在强制对话里。
 
 人物采用发现制。`bonds[npc].met` 默认是 `false`：配送票据带有该地点 NPC 时，订单结算会将其设为已结识；经典随机事件可用 `encounterNpc` 在事件触发时解锁角色。应用层只渲染已结识人物，`visit` 在规则层也会拒绝未结识角色，不能靠直接构造按钮绕过。旧存档迁移时，已有好感、信任、章节进度或关系路线会推断为已结识。
+
+关键成长主线由 `progression.js` 管理。它定义凡人奔忙、灯火初鸣、城市第二面、夜路同行、阵眼苏醒、系统质疑、系统真相等阶段，并在满足配送数、境界、已结识人物数后注入固定 `pending` 事件。关键事件使用 `kind: story`、`source: classic`、`aiStatus: skip`，不会进入普通随机事件池，也不会被 AI 替换。对应 `flags.story*` 会随存档恢复，避免重复触发。
+
+商城开放同样由 `progression.js` 约束：基础补给为凡人阶段，高阶材料与心法要求炼气，高阶法器要求筑基。规则层会拒绝未解锁兑换，UI 只负责显示锁定状态。
 
 ## 存档结构
 
