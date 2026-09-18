@@ -109,6 +109,12 @@ with sync_playwright() as p:
     assert page.locator('.player-name').inner_text() == '云行'
     assert '外卖修仙录' not in page.locator('#game-header').inner_text()
     assert page.locator('.player-marker').count() == 1
+    page.locator('.game-nav [data-panel="cultivation"]').click()
+    assert '凡人一重' in page.locator('#panel').inner_text()
+    assert '无药鼎' in page.locator('#panel').inner_text()
+    assert page.locator('[data-act="alchemy"]').first.is_disabled()
+    page.click('[data-ui="close"]')
+    record('修行面板显示九重小境界，未购鼎时禁止开炉')
     page.screenshot(path=str(OUT/'game-desktop.png'))
     pump(page, 1200)
     assert abs(current(page)['minutes']-481.2) < 1e-5
@@ -178,6 +184,8 @@ with sync_playwright() as p:
     page.select_option('#time-speed', '10')
     pump(page, 20000)
     assert current(page)['pending'] and current(page)['stats']['delivered'] == 0
+    assert page.locator('.trail-layer path').count() == 0
+    record('到达目的地后已完成路线立即从地图消失')
     paused_at = current(page)['minutes']
     pump(page, 2000)
     assert current(page)['minutes'] == paused_at
@@ -203,14 +211,16 @@ with sync_playwright() as p:
     record('面板自动暂停并恢复先前状态，1/3/10 倍率推进完整模拟')
 
     # Visibility is deliberately simulated, not a physical mobile OS suspend.
+    page.select_option('#time-speed', '1')
     page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));}''')
     old = stored(page)['minutes']
-    pump(page, 100000)
-    page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));}''')
-    pump(page, 2000)
+    page.evaluate('window.__now+=100000;window.__wall+=100000')
     assert current(page)['minutes'] == old
-    assert page.locator('[data-ui="pause"]').inner_text() == '继续'
-    record('页面隐藏与恢复不补算离线时间，返回后等待手动继续')
+    page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));}''')
+    assert page.locator('[data-ui="pause"]').inner_text() == '暂停'
+    pump(page, 2000)
+    assert abs(current(page)['minutes']-old-2) < 1e-5
+    record('页面隐藏不新增暂停，返回后按原状态继续且不补算离开时间')
 
     page.click('[data-ui="home"]')
     new_game(page, '青禾', 'ai')
@@ -230,6 +240,34 @@ with sync_playwright() as p:
     record('另一标签页写入后冻结旧页面，暂停按钮不能绕过冲突')
     assert not errors, errors
     record('桌面流程无 JavaScript 运行时异常')
+    ctx.close()
+
+    ctx, craft, cerrors = setup(browser, 1200, 900)
+    new_game(craft, '药童')
+    craft.click('[data-ui="home"]')
+    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
+    craft.locator('[data-ui="load"]').first.click()
+    assert current(craft)['player']['money'] == 1000
+    craft.locator('[data-place="market"]').focus();craft.keyboard.press('Enter')
+    craft.click('[data-act="travel"][data-target="market"]')
+    toggle(craft);craft.select_option('#time-speed', '10')
+    travel_ms = int((craft.evaluate("NightCourier.travelPlan(window.__live,'market').minutes") / 10 + .25) * 1000)
+    pump(craft, travel_ms)
+    assert current(craft)['position'] == 'market'
+    craft.locator('.game-nav [data-panel="cultivation"]').click()
+    assert '尚未购鼎' in craft.locator('#panel').inner_text()
+    craft.click('[data-act="cauldron"]')
+    assert stored(craft)['alchemy']['cauldron'] == 1
+    assert stored(craft)['player']['money'] == 840
+    assert craft.locator('[data-act="alchemy"][data-recipe="heal"]').is_enabled()
+    assert not craft.locator('[data-act="alchemy"][data-recipe="qi"]').is_enabled()
+    craft.click('[data-act="alchemy"][data-recipe="heal"]')
+    toggle(craft);craft.select_option('#time-speed', '10');pump(craft, 2200)
+    brewed = current(craft)
+    assert brewed['alchemy']['brews'] == 1 and brewed['alchemy']['xp'] >= 1
+    assert brewed['inventory']['herb'] == 9
+    record('炼药师可实际前往长乐集购鼎，开炉消耗材料并积累熟练度')
+    assert not cerrors, cerrors
     ctx.close()
 
     for width, height in [(390, 844), (320, 740)]:
