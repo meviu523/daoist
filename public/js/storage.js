@@ -184,7 +184,7 @@
         if(storage.getItem(G.STORAGE_KEY)===null&&legacy){
           cache=readKey(legacy);
           const migrated=persist(cache);
-          if(migrated.ok)warning='已将旧存档升级到 v5 连续时间版，角色、住处与既有进度保留。';
+          if(migrated.ok)warning='已将旧存档升级到 v6，角色、住处、车辆与既有进度保留；旧炼药途中存档会补基础药鼎。';
         }
       }
       catch(e){try{const backup=storage.getItem(G.BACKUP_KEY);if(!backup)throw new Error('没有备份');cache=readKey(G.BACKUP_KEY);warning='主存档损坏，已读取上一次自动备份。请先导出保存。';}catch{warning='本地存档无法读取；没有覆盖原始数据。可以导入外部备份。';}}
