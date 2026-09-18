@@ -43,7 +43,7 @@
   function renderStart(){
     $('#start-screen').hidden=false;$('#game-screen').hidden=true;
     const saves=store.saves;
-    $('#start-screen').innerHTML=`<div class="start-top"><div class="brand"><span class="brand-mark">${icon('box')}</span>外卖修仙录</div><span class="tag">单机 · 连续时间版 1.1</span></div>
+    $('#start-screen').innerHTML=`<div class="start-top"><div class="brand"><span class="brand-mark">${icon('box')}</span>外卖修仙录</div><span class="tag">单机 · 连续时间版 1.2</span></div>
       <div class="start-shell"><section class="start-hero"><h1>人间一程<span class="gold-text">仙途万里</span></h1><p>白天，把热饭送到万家灯火。<br>入夜，在城市的另一面修行。<br>这一次，你想把故事送向哪里？</p>
       <div class="hero-features"><span class="hero-feature">${icon('pin')}地图漫游</span><span class="hero-feature">${icon('people')}多线叙事</span><span class="hero-feature">${icon('moon')}昼夜修行</span></div>
       <svg class="hero-art" viewBox="0 0 460 170" fill="none" aria-hidden="true"><path d="M4 123 79 74 114 92 183 24 244 86 279 53 357 111 411 74 456 114" stroke="#708b70" stroke-width="1"/><path d="M5 143Q130 100 206 130T455 137" stroke="#466b55"/><path d="M10 155Q123 131 203 150T450 150" stroke="#466b55" opacity=".45"/><circle cx="310" cy="30" r="17" stroke="#d1b474"/><path d="M200 133v-24h47v24M196 109l28-15 29 15M214 133v-13h11v13" stroke="#d1b474"/><path d="M321 129h42v-21h-42zM317 108h50M324 103h37M337 94h12" stroke="#768e72"/><path d="M52 135v-17h19v17M83 130v-31h21v31M86 105h4m7 0h4M86 113h4m7 0h4" stroke="#6b8870"/><circle cx="232" cy="112" r="1.5" fill="#e1c186"/></svg>
