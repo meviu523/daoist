@@ -30,7 +30,7 @@
   let state=null,map=null,dialogType=null,dialogData={},systemTab='shop',logExpanded=false,logCollapsed=window.innerWidth<600,saveOk=!store.unavailable,conflict=false,usePill=false;
   let aiHealth={configured:false,message:'AI 服务未连接'},aiFlight=null,aiSerial=0;
   let lastSavedAt=0,lastLiveAt=0,dirtySinceSave=false;
-  const clock=new G.GameClock(advanceWorld,()=>{persist();renderLive();});
+  const clock=new G.GameClock(advanceWorld);
   clock.pause('menu');
   const dialog=$('#panel');
   function storageWarning(message=''){
@@ -43,7 +43,7 @@
   function renderStart(){
     $('#start-screen').hidden=false;$('#game-screen').hidden=true;
     const saves=store.saves;
-    $('#start-screen').innerHTML=`<div class="start-top"><div class="brand"><span class="brand-mark">${icon('box')}</span>外卖修仙录</div><span class="tag">单机 · 连续时间版 1.1</span></div>
+    $('#start-screen').innerHTML=`<div class="start-top"><div class="brand"><span class="brand-mark">${icon('box')}</span>外卖修仙录</div><span class="tag">单机 · 连续时间版 ${G.APP_VERSION}</span></div>
       <div class="start-shell"><section class="start-hero"><h1>人间一程<span class="gold-text">仙途万里</span></h1><p>白天，把热饭送到万家灯火。<br>入夜，在城市的另一面修行。<br>这一次，你想把故事送向哪里？</p>
       <div class="hero-features"><span class="hero-feature">${icon('pin')}地图漫游</span><span class="hero-feature">${icon('people')}多线叙事</span><span class="hero-feature">${icon('moon')}昼夜修行</span></div>
       <svg class="hero-art" viewBox="0 0 460 170" fill="none" aria-hidden="true"><path d="M4 123 79 74 114 92 183 24 244 86 279 53 357 111 411 74 456 114" stroke="#708b70" stroke-width="1"/><path d="M5 143Q130 100 206 130T455 137" stroke="#466b55"/><path d="M10 155Q123 131 203 150T450 150" stroke="#466b55" opacity=".45"/><circle cx="310" cy="30" r="17" stroke="#d1b474"/><path d="M200 133v-24h47v24M196 109l28-15 29 15M214 133v-13h11v13" stroke="#d1b474"/><path d="M321 129h42v-21h-42zM317 108h50M324 103h37M337 94h12" stroke="#768e72"/><path d="M52 135v-17h19v17M83 130v-31h21v31M86 105h4m7 0h4M86 113h4m7 0h4" stroke="#6b8870"/><circle cx="232" cy="112" r="1.5" fill="#e1c186"/></svg>
@@ -168,7 +168,7 @@
         const e=G.ENDINGS[s.ending];if(!e){closePanel();return;}title=e.title;label='Every ending is a beginning';body=`<div class="ending-symbol">归</div><div class="ending-text">${esc(e.text)}</div><div class="stat-grid" style="margin-bottom:24px">${statsBox('走过',G.day(s),'日')}${statsBox('送达',s.stats.delivered,'单')}${statsBox('行程',(s.stats.distance/1000).toFixed(1),'km')}</div><div class="button-row">${btn('继续游历','data-act="continue"','primary')}${btn('返回开始页','data-ui="home"')}</div>`;break;
       }
       case 'help':{
-        title='给初来此城的你';label='Field notes';body=`<div class="help-section"><h3>白天送外卖，入夜修行</h3><p>点地图上的金色订单标记，查看要求、距离、耗时与报酬，再选择「接单并配送」。取餐与送餐已经合并，没有单独的取餐流程。接单后人物沿道路前往目的地，到达并处理事件后才获得报酬；停止移动不会取消已接订单。空缺配送点在行动完成或每 15 个游戏分钟补充，普通收餐地点仅在有订单时显示。</p></div><div class="help-section"><h3>时间与地图</h3><p>正常速度下现实 1 秒等于游戏 1 分钟。时间运行时，即使原地不动，订单和房租也会继续计时。顶部可暂停或切换 1 / 3 / 10 倍速度，地图空白处也可按空格暂停。打开面板和剧情会自动暂停；手动暂停不会被关闭面板解除。切到后台、锁屏或读档后需要手动继续，不计算离线时间。</p><p>人物沿道路逐段移动，路程除以当前速度得到实际耗时，界面分钟数向上取整仅供预估。停止行动只停止当前活动，世界时间仍会流逝。体力和电量按实际路程消耗，休息、充电和修炼逐步生效。中断不退已投入材料；突破中断不退投入修为。系统兑换、签到、领奖、用药不耗时。</p><p>全城 ${G.PLACES.length} 个地点，新增云港新区、东湖新城、南郊生活区和灵溪山麓；普通配送点仍仅在有任务时出现。四座桥连接江两岸，扩城没有缩短距离或提高车速。鼠标滚轮缩放，按住拖动平移；手机可单指平移、双指缩放。键盘方向键平移，+ / − 缩放，Home 查看全城。右上角「◎」定位玩家。</p></div><div class="help-section"><h3>系统与修仙</h3><p>外卖币从成功配送、签到与委托奖励中获得。直接打开系统兑换，不必跑驿站。丹药在行囊使用，心法与装备兑换后立即生效。18:00–次日 06:00 修炼有夜间加成；听雨观另有灵地加成。修为达到门槛即可突破，失败会有损失。炼丹需要灵草与灵力。</p></div><div class="help-section"><h3>电动车与休息</h3><p>电量不足或车况归零会阻止骑行，但可以切换步行推车。回小屋睡眠会充满电量；可在任意地点花 ¥${G.CHARGE.cost} 充电，${G.CHARGE.minutes} 个游戏分钟逐步补满，无需前往修车铺；提前停止只保留已充入的电量。速度、电池容量、耐用性在修车铺独立升级，各最高 5 级。住处有不同周租与睡眠恢复效果，可在「歇息」中搬家；搬家按地图距离消耗时间、体力与电量。每 7 天按当前住处自动扣租，现金不足以支付完整房租时本局立即结束。搬家到达后新住处才生效；房租和配送同刻发生时先扣房租。</p></div><div class="help-section"><h3>角色与人际关系</h3><p>悟性影响修炼、炼丹与突破，根骨降低移动体力消耗，身法影响步行速度；机缘影响随机奇遇触发率，以及探索时额外发现灵草的概率。善缘与口碑影响路线条件和配送收益。六位 NPC 各有四章故事，每日最多深入交谈一次。友情与情感路线需你明确选择，不会自动绑定。五种结局都允许继续游玩。</p></div><div class="help-section"><h3>剧情与日志</h3><p>行为与事件结果只记录在右下角「行旅日志」。事件弹窗用于当前选择，不另建历史记录。经典模式无需网络；AI 模式生成随机奇遇，关键主线与人物章节保持固定。AI 的效果由引擎白名单校验，超限、无免费选项或接口失败都会回退经典事件。</p></div><div class="help-section"><h3>AI 接入</h3><p>当前：${esc(aiHealth.message)}。在项目根目录按 <code>.env.example</code> 配置服务端地址、模型和密钥，用 <code>npm start</code> 启动。密钥不进入浏览器或存档。AI 模式会将角色名、部分状态、地点与最近剧情摘要发送到你配置的服务，可能产生调用费用。模式只能在新建存档时选择，局内不可更改。</p></div><div class="help-section"><h3>自动存档与备份</h3><p>最多保存 ${G.MAX_SAVES} 段旅程，关键行动及暂停时立即自动保存，运行期间每 10 秒自动保存，另外保留上一次写入前的本地备份。导入一律生成新副本，不覆盖已有进度。浏览器清理网站数据会删除本地存档，请定期导出。多个标签页同时操作会暂停旧页，避免覆盖新进度。纯单机数据可被开发者工具修改；本版不提供服务端防作弊。</p><p>此版本按对话中的需求重新实现，不是原仓库逐文件恢复。原始存档结构未知，不保证能够直接导入；仅对重建版已识别结构做升级处理。</p></div><div class="button-row">${btn('导入存档','data-ui="import"','small')}${btn('导出全部','data-ui="export-all"','small')}${btn('恢复上次自动备份','data-ui="restore"','small')}</div>`;break;
+        title='给初来此城的你';label='Field notes';body=`<div class="help-section"><h3>白天送外卖，入夜修行</h3><p>点地图上的金色订单标记，查看要求、距离、耗时与报酬，再选择「接单并配送」。取餐与送餐已经合并，没有单独的取餐流程。接单后人物沿道路前往目的地，到达并处理事件后才获得报酬；停止移动不会取消已接订单。空缺配送点在行动完成或每 15 个游戏分钟补充，普通收餐地点仅在有订单时显示。</p></div><div class="help-section"><h3>时间与地图</h3><p>正常速度下现实 1 秒等于游戏 1 分钟。时间运行时，即使原地不动，订单和房租也会继续计时。顶部可暂停或切换 1 / 3 / 10 倍速度，地图空白处也可按空格暂停。打开面板和剧情会自动暂停；手动暂停不会被关闭面板解除。切换标签页或应用不会自动暂停，后台仍按当前倍率计时；后台计时器被浏览器延迟时，返回后会分批推进本次会话经过的时间，遇到剧情选择立即停下。要暂时离开而不计时，请先手动暂停。关闭或重载页面后不补算离线时间，读档仍需手动继续。</p><p>人物沿道路逐段移动，路程除以当前速度得到实际耗时，界面分钟数向上取整仅供预估。停止行动只停止当前活动，世界时间仍会流逝。体力和电量按实际路程消耗，休息、充电和修炼逐步生效。中断不退已投入材料；突破中断不退投入修为。系统兑换、签到、领奖、用药不耗时。</p><p>鼠标滚轮缩放，按住拖动平移；手机可单指平移、双指缩放。键盘方向键平移，+ / − 缩放，Home 查看全城。右上角「◎」定位玩家，「全图」查看扩展后的 110 个地点。已发布的 99 个地点及四座桥保留，继续向南扩展南岸新街；普通配送点仍只在有任务时出现。</p></div><div class="help-section"><h3>系统与修仙</h3><p>外卖币从成功配送、签到与委托奖励中获得。直接打开系统兑换，不必跑驿站。丹药在行囊使用，心法与装备兑换后立即生效。18:00–次日 06:00 修炼有夜间加成；听雨观另有灵地加成。修为达到门槛即可突破，失败会有损失。炼丹需要灵草与灵力。</p></div><div class="help-section"><h3>电动车与休息</h3><p>电量不足或车况归零会阻止骑行，但可以切换步行推车。回小屋睡眠会充满电量；可在任意地点花 ¥${G.CHARGE.cost} 充电，${G.CHARGE.minutes} 个游戏分钟逐步补满，无需前往修车铺；提前停止只保留已充入的电量。速度、电池容量、耐用性在修车铺独立升级，各最高 5 级。住处有不同周租与睡眠恢复效果，可在「歇息」中搬家；搬家按地图距离消耗时间、体力与电量。每 7 天按当前住处自动扣租，现金不足以支付完整房租时本局立即结束。搬家到达后新住处才生效；房租和配送同刻发生时先扣房租。</p></div><div class="help-section"><h3>角色与人际关系</h3><p>悟性影响修炼、炼丹与突破，根骨降低移动体力消耗，身法影响步行速度；机缘影响随机奇遇触发率，以及探索时额外发现灵草的概率。善缘与口碑影响路线条件和配送收益。六位 NPC 各有四章故事，每日最多深入交谈一次。友情与情感路线需你明确选择，不会自动绑定。五种结局都允许继续游玩。</p></div><div class="help-section"><h3>剧情与日志</h3><p>行为与事件结果只记录在右下角「行旅日志」。事件弹窗用于当前选择，不另建历史记录。经典模式无需网络；AI 模式生成随机奇遇，关键主线与人物章节保持固定。AI 的效果由引擎白名单校验，超限、无免费选项或接口失败都会回退经典事件。</p></div><div class="help-section"><h3>AI 接入</h3><p>当前：${esc(aiHealth.message)}。在项目根目录按 <code>.env.example</code> 配置服务端地址、模型和密钥，用 <code>npm start</code> 启动。密钥不进入浏览器或存档。AI 模式会将角色名、部分状态、地点与最近剧情摘要发送到你配置的服务，可能产生调用费用。模式只能在新建存档时选择，局内不可更改。</p></div><div class="help-section"><h3>自动存档与备份</h3><p>最多保存 ${G.MAX_SAVES} 段旅程，关键行动及暂停时立即自动保存，运行期间每 10 秒自动保存，另外保留上一次写入前的本地备份。导入一律生成新副本，不覆盖已有进度。浏览器清理网站数据会删除本地存档，请定期导出。多个标签页同时操作会暂停旧页，避免覆盖新进度。纯单机数据可被开发者工具修改；本版不提供服务端防作弊。</p><p>此版本按对话中的需求重新实现，不是原仓库逐文件恢复。原始存档结构未知，不保证能够直接导入；仅对重建版已识别结构做升级处理。</p></div><div class="button-row">${btn('导入存档','data-ui="import"','small')}${btn('导出全部','data-ui="export-all"','small')}${btn('恢复上次自动备份','data-ui="restore"','small')}</div>`;break;
       }
       default:return;
     }
@@ -178,7 +178,7 @@
       if(!['buy','sign','claim','stop','panel-cultivation','panel-vehicle'].includes(button.dataset.act))button.disabled=true;
     }
   }
-  function loadGame(id,autoStart=false){const found=store.saves.find(s=>s.id===id);if(!found)return showError('没有找到这个存档。');abortAI();clock.pause('manual');clock.speed=1;state=G.clone(found);conflict=false;dirtySinceSave=false;lastSavedAt=Date.now();saveOk=!store.unavailable;dialog.close();dialogType=null;clearError();renderGame();requestAnimationFrame(()=>{if(window.innerWidth<800)map.center();else map.fit();});if(state.gameOver)openPanel('gameover');else if(state.pending){openPanel('event');maybeGenerateAI();}else if(state.ending)openPanel('ending');if(autoStart)clock.release('manual');syncPause();renderLive();}
+  function loadGame(id,autoStart=false){const found=store.saves.find(s=>s.id===id);if(!found)return showError('没有找到这个存档。');abortAI();clock.pause('manual');clock.speed=1;state=G.clone(found);conflict=false;dirtySinceSave=false;lastSavedAt=Date.now();saveOk=!store.unavailable;dialog.close();dialogType=null;clearError();renderGame();requestAnimationFrame(()=>map.center());if(state.gameOver)openPanel('gameover');else if(state.pending){openPanel('event');maybeGenerateAI();}else if(state.ending)openPanel('ending');if(autoStart)clock.release('manual');syncPause();renderLive();}
   function act(action,payload={}){
     if(!state)return;if(action==='panel-cultivation'){openPanel('cultivation');return;}if(action==='panel-vehicle'){openPanel('vehicle');return;}
     if(conflict){showError('另一标签页已更新本地存档。请返回开始页重新载入，以免覆盖。');return;}
@@ -252,7 +252,7 @@
   dialog.addEventListener('click',e=>{if(e.target===dialog){const b=dialog.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)closePanel();}});
   window.addEventListener('storage',e=>{if(e.key===G.STORAGE_KEY){if(state){conflict=true;clock.pause('conflict');abortAI();storageWarning('另一标签页已更新存档，本页已暂停行动。请返回开始页重新载入。');}else{store.load();renderStart();}}});
   function syncPause(){
-    for(const [reason,blocked] of [['menu',!state],['panel',dialog.open],['event',!!(state?.pending||state?.ending||state?.gameOver)],['conflict',conflict],['hidden',document.hidden]]){
+    for(const [reason,blocked] of [['menu',!state],['panel',dialog.open],['event',!!(state?.pending||state?.ending||state?.gameOver)],['conflict',conflict]]){
       if(blocked)clock.pause(reason);else clock.release(reason);
     }
   }
@@ -298,15 +298,18 @@
     if(Date.now()-lastSavedAt>=10000)persist();
   }
   function frame(timestamp){
-    clock.frame(timestamp);
+    clock.frame(performance.now());
     if(timestamp-lastLiveAt>=100){renderLive();lastLiveAt=timestamp;}
     requestAnimationFrame(frame);
   }
-  function suspendPage(){clock.pause('manual');syncPause();persist();renderLive();}
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)suspendPage();else{syncPause();renderLive();}});
-  window.addEventListener('pagehide',suspendPage);
-  window.addEventListener('pageshow',()=>{syncPause();renderLive();});
-  window.addEventListener('beforeunload',()=>{if(!conflict)persist();});
+  // Hidden tabs may stop receiving animation frames. Both schedulers feed the
+  // same clock with performance.now(), so an overlap never advances twice.
+  setInterval(()=>{if(document.hidden)clock.frame(performance.now());},1000);
+  function savePage(){clock.frame(performance.now());syncPause();persist();renderLive();}
+  document.addEventListener('visibilitychange',savePage);
+  window.addEventListener('pagehide',savePage);
+  window.addEventListener('pageshow',savePage);
+  window.addEventListener('beforeunload',savePage);
   document.addEventListener('keydown',e=>{
     if(e.code!=='Space'||e.repeat||!state||dialog.open||e.target.closest('input,textarea,select,button,[role="button"]'))return;
     e.preventDefault();if(clock.reasons.has('manual'))clock.release('manual');else clock.pause('manual');persist();renderLive();
