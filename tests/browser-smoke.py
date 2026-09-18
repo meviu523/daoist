@@ -298,8 +298,8 @@ with sync_playwright() as p:
 
     ctx, alchemy, alchemy_errors = setup(browser, 1100, 850)
     new_game(alchemy, '丹客')
-    alchemy.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.position='market';s.location=null;s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));}''')
     alchemy.click('[data-ui="home"]')
+    alchemy.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.position='market';s.location=null;s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));}''')
     alchemy.locator('[data-ui="load"]').first.click()
     alchemy.locator('.game-nav [data-panel="cultivation"]').click()
     assert '长乐集' in alchemy.locator('#panel').inner_text()
