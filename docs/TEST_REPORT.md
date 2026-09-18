@@ -8,8 +8,8 @@
 | --- | --- | --- |
 | JavaScript语法 | `npm run check` | 通过 |
 | 单文件打包 | `npm run build` | 成功生成 dist/index.html |
-| 引擎、存档与HTTP | `npm test` | **87通过 / 0失败 / 0跳过** |
-| 离线浏览器交互 | `python tests/browser-smoke.py` | **11通过 / 0失败** |
+| 引擎、存档与HTTP | `npm test` | **100通过 / 0失败 / 0跳过**（住房/房租修改 PR） |
+| 离线浏览器交互 | `python tests/browser-smoke.py` | **11通过 / 0失败**（此前重建版结果；本次住房界面改动未重跑） |
 
 验证环境：Linux、Node.js v22.16.0、Chromium 144.0.7559.96（Debian GNU/Linux 13 构建）、Python Playwright。桌面视口1440×1000，手机布局模拟390×844；AI场景视口1200×900。
 
