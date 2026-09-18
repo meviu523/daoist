@@ -106,6 +106,9 @@ with sync_playwright() as p:
     ctx, page, errors = setup(browser)
     page.screenshot(path=str(OUT/'start-desktop.png'))
     new_game(page)
+    assert page.evaluate('NightCourier.PLACES.length') == 72
+    assert page.evaluate('NightCourier.GRID_X.length===9 && NightCourier.GRID_Y.length===8')
+    record('扩大地图为 9×8 路网并保留完整交互渲染')
     assert page.locator('.player-name').inner_text() == '云行'
     assert '外卖修仙录' not in page.locator('#game-header').inner_text()
     assert page.locator('.player-marker').count() == 1
@@ -178,6 +181,8 @@ with sync_playwright() as p:
     page.select_option('#time-speed', '10')
     pump(page, 20000)
     assert current(page)['pending'] and current(page)['stats']['delivered'] == 0
+    assert page.locator('.trail-layer path').count() == 0
+    record('到达目的地后已完成路线立即从地图消失')
     paused_at = current(page)['minutes']
     pump(page, 2000)
     assert current(page)['minutes'] == paused_at
@@ -203,14 +208,16 @@ with sync_playwright() as p:
     record('面板自动暂停并恢复先前状态，1/3/10 倍率推进完整模拟')
 
     # Visibility is deliberately simulated, not a physical mobile OS suspend.
+    page.select_option('#time-speed', '1')
     page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));}''')
     old = stored(page)['minutes']
-    pump(page, 100000)
-    page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));}''')
-    pump(page, 2000)
+    page.evaluate('window.__now+=100000;window.__wall+=100000')
     assert current(page)['minutes'] == old
-    assert page.locator('[data-ui="pause"]').inner_text() == '继续'
-    record('页面隐藏与恢复不补算离线时间，返回后等待手动继续')
+    page.evaluate('''()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));}''')
+    assert page.locator('[data-ui="pause"]').inner_text() == '暂停'
+    pump(page, 2000)
+    assert abs(current(page)['minutes']-old-2) < 1e-5
+    record('页面隐藏不新增暂停，返回后自动按原状态继续且不补算离开时间')
 
     page.click('[data-ui="home"]')
     new_game(page, '青禾', 'ai')
