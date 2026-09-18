@@ -6,7 +6,7 @@ await mkdir(out,{recursive:true});
 let html=await readFile(join(root,'public/index.html'),'utf8');
 const css=await readFile(join(root,'public/styles.css'),'utf8');
 html=html.replace('<link rel="stylesheet" href="styles.css">',`<style>\n${css}\n</style>`);
-for(const file of ['data','engine','storage','map','app']){
+for(const file of ['data','engine','storage','progression','map','app']){
  const js=await readFile(join(root,`public/js/${file}.js`),'utf8');
  html=html.replace(`<script src="js/${file}.js" defer></script>`,'');
  html=html.replace('</body>',`<script>\n${js.replace(/<\/script/gi,'<\\/script')}\n</script>\n</body>`);
