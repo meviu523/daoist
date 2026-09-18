@@ -147,8 +147,9 @@
     let base;
     if (kind === 'delivery' && !s.flags.firstOrder) { base=G.EVENTS.find(e=>e.id==='first-order'); s.flags.firstOrder=true; }
     else {
-      let pool=G.EVENTS.filter(e=>e.kind===kind && e.id!=='first-order' && !s.recentEvents.includes(e.id));
-      if (!pool.length) pool=G.EVENTS.filter(e=>e.kind===kind && e.id!=='first-order');
+      let pool=G.EVENTS.filter(e=>e.kind===kind && e.id!=='first-order' && !s.recentEvents.includes(e.id) && (!e.encounterNpc || !s.bonds[e.encounterNpc]?.met));
+      if (!pool.length) pool=G.EVENTS.filter(e=>e.kind===kind && e.id!=='first-order' && (!e.encounterNpc || !s.bonds[e.encounterNpc]?.met));
+      if (!pool.length) pool=G.EVENTS.filter(e=>e.kind===kind && e.id!=='first-order' && !e.encounterNpc);
       base=pool[int(s,0,pool.length-1)];
     }
     if(base.encounterNpc&&s.bonds[base.encounterNpc]&&!s.bonds[base.encounterNpc].met){s.bonds[base.encounterNpc].met=true;const npc=G.NPCS.find(n=>n.id===base.encounterNpc);if(npc)G.log(s,`你在一段意外的相逢中结识了${npc.name}。从现在起，可以在「羁绊」中找到对方。`,'相逢');}
