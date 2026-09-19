@@ -60,8 +60,11 @@
   function renderGame(){
     if(!state)return;const s=state,c=G.limits(s);
     $('#start-screen').hidden=true;$('#game-screen').hidden=false;
-    $('#game-header').innerHTML=`<div class="header-main"><button class="identity" data-panel="character" title="查看角色属性"><span class="avatar">${esc([...s.name][0])}</span><span><span class="player-name" style="display:block">${esc(s.name)}</span><small>${G.realmLabel(s)} · ${s.stats.delivered<10?'初行骑手':s.stats.delivered<30?'街巷熟客':'万家掌灯人'}</small></span></button>
-      <div class="clock-wrap"><span class="weather">${icon(G.isNight(s)?'moon':'sun')}</span><div><div class="clock-time">${G.clock(s)}</div><div class="clock-desc">第 ${G.day(s)} 日 · ${G.WEATHER.find(w=>w.id===s.weather).name}</div></div><div class="time-controls"><button data-ui="pause" aria-label="暂停游戏">暂停</button><select id="time-speed" aria-label="时间速度"><option value="1">1 倍</option><option value="3">3 倍</option><option value="10">10 倍</option></select></div></div>
+    const header=$('#game-header');
+    // 时间倍率 select 是原生交互控件。世界 revision 只更新状态文本，不重建顶部 DOM，
+    // 否则正在打开/聚焦的选择框会被销毁并立即关闭。
+    if(!header.querySelector('.header-main'))header.innerHTML=`<div class="header-main"><button class="identity" data-panel="character" title="查看角色属性"><span class="avatar">${esc([...s.name][0])}</span><span><span class="player-name" style="display:block">${esc(s.name)}</span><small>${G.realmLabel(s)} · ${s.stats.delivered<10?'初行骑手':s.stats.delivered<30?'街巷熟客':'万家掌灯人'}</small></span></button>
+      <div class="clock-wrap"><span class="weather" data-night="${G.isNight(s)}">${icon(G.isNight(s)?'moon':'sun')}</span><div><div class="clock-time">${G.clock(s)}</div><div class="clock-desc">第 ${G.day(s)} 日 · ${G.WEATHER.find(w=>w.id===s.weather).name}</div></div><div class="time-controls"><button data-ui="pause" aria-label="暂停游戏">暂停</button><select id="time-speed" aria-label="时间速度"><option value="1">1 倍</option><option value="3">3 倍</option><option value="10">10 倍</option></select></div></div>
       <div class="currency-group"><div class="currency">${icon('cash')}<div><span class="currency-label">现金</span><span class="currency-number">¥${s.player.money}</span></div></div><button class="currency gold-text" data-panel="system" title="打开系统"><span>${icon('coin')}</span><span style="text-align:left"><span class="currency-label">外卖币</span><span class="currency-number">${s.player.coins}</span></span></button></div>
       <div class="header-home"><span class="autosave"><i></i>${saveOk?'已自动保存':'未保存'}</span><button class="icon-btn" data-ui="home" title="返回开始页" aria-label="返回开始页">${icon('home')}</button></div></div>
       <div class="resource-row">${resource('气血',s.player.health,c.health,'hp')}${resource('体力',s.player.stamina,c.stamina)}${resource('灵力',s.player.mana,c.mana,'qi')}${resource('电量',s.vehicle.battery,c.battery,'battery')}</div>`;
@@ -261,6 +264,11 @@
   function renderLive(){
     if(!state)return;const s=state,cap=G.limits(s),a=s.activity;
     $('#game-screen').dataset.paused=String(clock.paused);
+    const avatar=$('.avatar');if(avatar)avatar.textContent=[...s.name][0]||'';
+    const playerName=$('.player-name');if(playerName)playerName.textContent=s.name;
+    const identityMeta=$('.identity small');if(identityMeta)identityMeta.textContent=`${G.realmLabel(s)} · ${s.stats.delivered<10?'初行骑手':s.stats.delivered<30?'街巷熟客':'万家掌灯人'}`;
+    const currencies=document.querySelectorAll('.currency-number');if(currencies[0])currencies[0].textContent=`¥${s.player.money}`;if(currencies[1])currencies[1].textContent=String(s.player.coins);
+    const weather=$('.weather'),night=String(G.isNight(s));if(weather&&weather.dataset.night!==night){weather.dataset.night=night;weather.innerHTML=icon(G.isNight(s)?'moon':'sun');}
     const pause=$('[data-ui="pause"]');if(pause){pause.textContent=clock.reasons.has('manual')?'继续':'暂停';pause.setAttribute('aria-label',clock.reasons.has('manual')?'继续游戏':'暂停游戏');pause.setAttribute('aria-pressed',String(clock.paused));}
     if($('#time-speed'))$('#time-speed').value=String(clock.speed);
     if($('.clock-time'))$('.clock-time').textContent=G.clock(s);
