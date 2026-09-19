@@ -1,0 +1,68 @@
+name: Apply validated delivery result changes
+
+on:
+  push:
+    branches: [feat/delivery-results-1.8.0]
+    paths:
+      - '.delivery-results/**'
+      - '.github/workflows/apply-delivery-results.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/feat/delivery-results-1.8.0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Reconstruct hash-verified source edits
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, lzma, pathlib, shutil
+          allowed = {'PROJECT_MEMORY.md','README.md','docs/ARCHITECTURE.md','docs/TEST_REPORT.md','docs/TEST_REPORT_1.8.0.md','package.json','public/js/app.js','public/js/data.js','public/js/engine.js','public/js/storage.js','public/styles.css','tests/browser-smoke.py','tests/engine.test.mjs','tests/event-results.test.mjs','tests/gameplay-unlocks.test.mjs','tests/location-unlocks.test.mjs'}
+          encoded = ''.join(pathlib.Path(f'.delivery-results/part-{i}.b64').read_text().strip() for i in range(7))
+          raw = lzma.decompress(base64.b64decode(encoded, validate=True))
+          digest = lambda b: hashlib.sha256(b).hexdigest()
+          assert digest(raw) == '79db610e9b81061af719bc349f8cefabdefc59fe1302942d0d4eecafffccfe8b', 'transport digest mismatch'
+          edits = json.loads(raw)
+          assert len(edits) == len(allowed) and {e[0] for e in edits} == allowed, 'unexpected files'
+          outputs = []
+          for name, before, after, ops in edits:
+              path = pathlib.Path(name)
+              old = path.read_bytes() if path.exists() else b''
+              assert digest(old) == before, f'baseline changed: {name}'
+              lines = old.decode('utf-8').splitlines(keepends=True)
+              last = len(lines)
+              for start, end, replacements in reversed(ops):
+                  assert 0 <= start <= end <= last, f'invalid range: {name}'
+                  lines[start:end] = replacements
+                  last = start
+              output = ''.join(lines).encode('utf-8')
+              assert digest(output) == after, f'output mismatch: {name}'
+              outputs.append((path, output))
+          for path, output in outputs:
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(output)
+              print(f'Verified {path}: {digest(output)}')
+          shutil.rmtree('.delivery-results')
+          PY
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+      - name: Validate exact reconstructed source
+        run: |
+          git diff --check
+          npm run check
+          npm test
+          npm run build
+      - name: Commit source to the feature branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A -- .delivery-results PROJECT_MEMORY.md README.md docs/ARCHITECTURE.md docs/TEST_REPORT.md docs/TEST_REPORT_1.8.0.md package.json public/js/app.js public/js/data.js public/js/engine.js public/js/storage.js public/styles.css tests/browser-smoke.py tests/engine.test.mjs tests/event-results.test.mjs tests/gameplay-unlocks.test.mjs tests/location-unlocks.test.mjs
+          git commit -m 'feat: show settled choice results and expand delivery events to 60'
+          git push origin HEAD:feat/delivery-results-1.8.0
