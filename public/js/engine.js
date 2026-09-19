@@ -145,8 +145,45 @@
   G.alchemyMaterials = recipe => recipe?.materials || (recipe?.herbs ? {herb:recipe.herbs} : {});
   G.alchemyMaterialText = recipe => Object.entries(G.alchemyMaterials(recipe)).map(([id,count])=>`${G.alchemyMaterial(id)?.name || G.ITEMS.find(i=>i.id===id)?.name || id} ×${count}`).join(' · ');
   G.alchemyHasFormula = (s,recipe) => !!recipe && Array.isArray(s.alchemy?.formulas) && s.alchemy.formulas.includes(recipe.id);
-  G.formulaMarketCandidates = s => G.ALCHEMY_RECIPES.filter(r=>r.realm<=s.player.realm&&!G.alchemyHasFormula(s,r));
+  G.formulaMarketCandidates = s => G.ALCHEMY_RECIPES.filter(r=>r.acquisition.type==='shop'&&r.realm<=s.player.realm&&!G.alchemyHasFormula(s,r));
   G.formulaScrollCost = s => 45+s.player.realm*30;
+  G.formulaStoryComplete = (s,source) => source.quest
+    ? s.claimed.includes(source.quest)
+    : s.flags[source.flag]===true && s.pending?.templateId!==source.event
+      && !(s.activity?.kind==='choice'&&s.activity.params.event?.templateId===source.event);
+  G.formulaRewardReady = (s,recipe) => {
+    const source=recipe.acquisition;
+    if(source.type==='story')return G.formulaStoryComplete(s,source);
+    if(source.type==='bond'){
+      const bond=s.bonds[source.npc];
+      return bond?.met===true&&bond.stage>=source.stage&&bond.trust>=source.trust;
+    }
+    return false;
+  };
+  // 只在已经复制的事务/完成结算/读档迁移状态上调用，不在 UI 或每帧抽取奖励。
+  G.syncFormulaRewards = s => {
+    if(s.gameOver)return;
+    const rewards=G.ALCHEMY_RECIPES.filter(r=>!G.alchemyHasFormula(s,r)&&G.formulaRewardReady(s,r));
+    for(const recipe of rewards){
+      s.alchemy.formulas.push(recipe.id);
+      const source=recipe.acquisition;
+      G.log(s,source.type==='bond'
+        ? `${G.NPCS.find(n=>n.id===source.npc).name}将丹方《${recipe.name}》传给了你。羁绊传方，已永久收录。`
+        : `完成「${source.label}」，获得剧情丹方《${recipe.name}》。已永久收录。`,'炼药');
+    }
+  };
+  // 这是配置的获取途径，不据此改写旧存档中已经取得的丹方。
+  G.formulaSourceLabel = recipe => {
+    const source=recipe.acquisition;
+    return source.type==='shop'?'商店购买':source.type==='bond'
+      ? `羁绊 · ${G.NPCS.find(n=>n.id===source.npc).name}`:`剧情 · ${source.label}`;
+  };
+  G.formulaBondProgress = (s,npcId) => {
+    if(!s.bonds[npcId]?.met)return null;
+    const recipes=G.ALCHEMY_RECIPES.filter(r=>r.acquisition.type==='bond'&&r.acquisition.npc===npcId);
+    return {owned:recipes.filter(r=>G.alchemyHasFormula(s,r)).length,total:recipes.length,
+      next:recipes.filter(r=>!G.alchemyHasFormula(s,r)).sort((a,b)=>a.acquisition.stage-b.acquisition.stage)[0]?.acquisition||null};
+  };
   G.alchemyQualified = (s,recipe) => !!recipe && s.player.realm>=recipe.realm && (s.alchemy?.xp||0)>=recipe.need;
   G.alchemyUnlocked = (s,recipe) => G.alchemyHasFormula(s,recipe) && G.alchemyQualified(s,recipe);
   G.alchemyCauldronReady = (s,recipe) => !!recipe && (G.cauldron(s).tier||0)>=recipe.minCauldronTier;
@@ -289,6 +326,7 @@
   function markComplete(s,kind){
     s.activity=null;s.turn++;s.revision++;normalize(s);
     if(s.player.health<=EPS){beginRescue(s);return;}
+    G.syncFormulaRewards(s);
     G.refreshOrders(s);
     G.afterWorldAction?.(s,kind);
   }
@@ -354,10 +392,8 @@
       case 'explore':{
         s.stats.explored++;
         const maxTier=Math.min(9,1+s.player.realm*2+(s.position==='temple'?1:0)),pool=G.ALCHEMY_MATERIALS.filter(m=>m.realm<=s.player.realm&&m.tier<=maxTier);
-        const materialChance=Math.min(.45,.05+s.player.luck*.01),formulaChance=Math.min(.24,.025+s.player.luck*.004),roll=G.rand(s),bias=G.isNight(s)?3:0;
+        const materialChance=Math.min(.45,.05+s.player.luck*.01),roll=G.rand(s),bias=G.isNight(s)?3:0;
         if(pool.length&&roll<materialChance){const material=pool[(Math.floor(roll/Math.max(materialChance,EPS)*pool.length)+bias)%pool.length];s.inventory[material.id]=(s.inventory[material.id]||0)+1;G.log(s,`探索时额外发现${material.name} ×1。`,'机缘');}
-        const unknown=G.ALCHEMY_RECIPES.filter(r=>r.realm<=s.player.realm&&!G.alchemyHasFormula(s,r));
-        if(unknown.length&&roll<formulaChance){const recipe=unknown[(Math.floor(roll/Math.max(formulaChance,EPS)*unknown.length)+bias)%unknown.length];s.alchemy.formulas.push(recipe.id);G.log(s,`在残页与旧药录里辨认出丹方《${recipe.name}》。已永久收录。`,'炼药');}
         event(s,'explore');G.log(s,`在${G.locationName(s)}探索半小时，遇见一段新的故事。`,'探索');break;
       }
       case 'visit':finishVisit(s,a.params.id);break;
@@ -532,7 +568,7 @@
           G.log(s,`开始从${G.realmLabel(s)}突破至${G.nextRealmLabel(s)}，投入 ${need} 修为与 20 体力。${pillTier?`服用${pillTier}阶破境丹，成功率 +${G.breakthroughPillBonus(pillTier)}%。`:''}中断不退还投入；失败将退回约 75% 修为。`,'破境');break;
         }
         case 'alchemy':{
-          const recipe=G.alchemyRecipe(payload.recipe);must(recipe,'丹方不存在。');must(G.alchemyHasFormula(s,recipe),`尚未获得丹方《${recipe.name}》。可在长乐集购买，探索也可能发现。`);must((s.alchemy?.cauldron||0)>0,'还没有药鼎。请先到长乐集购买药鼎。');must(G.alchemyQualified(s,recipe),`炼药熟练度或境界不足，暂时无法参悟${recipe.name}。`);must(G.alchemyCauldronReady(s,recipe),`这张丹方至少需要${recipe.minCauldronTier}阶药鼎。`);
+          const recipe=G.alchemyRecipe(payload.recipe);must(recipe,'丹方不存在。');must(G.alchemyHasFormula(s,recipe),'尚未获得丹方。丹方需通过剧情、羁绊传授或商店购买获得。');must((s.alchemy?.cauldron||0)>0,'还没有药鼎。请先到长乐集购买药鼎。');must(G.alchemyQualified(s,recipe),`炼药熟练度或境界不足，暂时无法参悟${recipe.name}。`);must(G.alchemyCauldronReady(s,recipe),`这张丹方至少需要${recipe.minCauldronTier}阶药鼎。`);
           const materials=G.alchemyMaterials(recipe);effects(s,{mana:-recipe.mana},null,materials);begin(s,'alchemy',{recipe:recipe.id});G.log(s,`按${recipe.name}开炉。${G.alchemyMaterialText(recipe)} · 灵力 -${recipe.mana} 已投入；最终丹药阶数由药鼎与炼药师水平共同决定，中断不返还。`,'炼药');break;
         }
         case 'explore':must(['park','temple'].includes(s.position),'请先前往月渡公园或听雨观探索。');must(s.player.stamina>=12,'探索需要 12 点体力。');begin(s,'explore');G.log(s,'开始探索周围的街巷与灵息。','探索');break;
@@ -574,6 +610,7 @@
         }
         case 'formula': {
           must(s.position==='market','请先前往长乐集寻购丹方。');
+          must(!payload.id&&!payload.recipe,'残卷只能购入商店可售的未知丹方，不能指定未获得丹方。');
           const candidates=G.formulaMarketCandidates(s),cost=G.formulaScrollCost(s);must(candidates.length,'当前境界能买到的丹方已经全部收录。');must(s.player.money>=cost,`购入一卷未收录丹方残卷需要 ¥${cost}。`);
           s.player.money-=cost;const recipe=candidates[Math.floor(G.rand(s)*candidates.length)];s.alchemy.formulas.push(recipe.id);G.log(s,`在长乐集购得一卷残卷，辨认后确认是丹方《${recipe.name}》。现金 -¥${cost}，丹方已永久收录。`,'炼药');break;
         }
@@ -591,7 +628,7 @@
       }
       // Zero-distance follow-ups still obey the same completion path.
       if(s.activity?.phase==='work'&&!s.activity.duration)finish(s,s.activity);
-      normalize(s);if(s.player.health<=EPS&&!s.activity&&!s.pending)beginRescue(s);
+      normalize(s);G.syncFormulaRewards(s);if(s.player.health<=EPS&&!s.activity&&!s.pending)beginRescue(s);
       s.turn++;s.revision++;s.updatedAt=Date.now();return {ok:true,state:s};
     }catch(error){if(error instanceof RuleError)return {ok:false,state:original,error:error.message};throw error;}
   };

@@ -76,6 +76,7 @@ def new_game(page, name='云行', mode='classic'):
 def setup(browser, width=1440, height=1000, ai=False, controlled=True):
     ctx = browser.new_context(viewport={'width': width, 'height': height}, has_touch=width<600, device_scale_factor=1)
     page = ctx.new_page()
+    page.set_default_timeout(7000)
     errors = []
     page.on('pageerror', lambda err: errors.append(str(err)))
     page.evaluate('() => {' + BOOT + '}')
@@ -93,6 +94,8 @@ def select_order(page):
     assert page.locator('[data-act="deliver"]').is_enabled()
 
 def fixture(page, edits):
+    if page.locator('#panel[open] [data-ui="close"]').count():
+        page.click('#panel [data-ui="close"]')
     page.click('[data-ui="home"]')
     page.evaluate('''(edits)=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k));const s=x.saves[0];Object.assign(s,edits);localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''', edits)
     page.locator('[data-ui="load"]').first.click()
@@ -305,11 +308,13 @@ with sync_playwright() as p:
     craft.click('[data-act="formula"]')
     acquired = current(craft)['alchemy']['formulas']
     assert len(acquired) == 1
+    assert craft.evaluate('(id)=>NightCourier.alchemyRecipe(id).acquisition.type', acquired[0]) == 'shop'
     assert current(craft)['player']['money'] < before_formula_money
     acquired_name = craft.evaluate("(id)=>NightCourier.alchemyRecipe(id).name", acquired[0])
     remaining_name = craft.evaluate("()=>NightCourier.ALCHEMY_RECIPES.find(r=>!window.__live.alchemy.formulas.includes(r.id)).name")
     panel_text = craft.locator('#panel').inner_text()
     assert acquired_name in panel_text
+    assert '获取途径：商店购买' in panel_text
     assert remaining_name not in panel_text
     assert craft.locator('[data-act="alchemy"]').count() == 1
     assert craft.evaluate("NightCourier.ALCHEMY_MATERIALS.length") == 64
@@ -317,6 +322,68 @@ with sync_playwright() as p:
     assert craft.evaluate("NightCourier.CAULDRONS.length - 1") == 24
     record('未获得丹方完全隐藏；长乐集购入未知残卷后才显示具体丹方')
     assert not cerrors, cerrors
+    ctx.close()
+
+    # Dedicated acquisition checks use the same real bundle and save reload path.
+    for width, height in [(1200, 900), (320, 740)]:
+        ctx, formula, ferrors = setup(browser, width, height)
+        new_game(formula, '传方')
+        edits = formula.evaluate("""()=>{const G=NightCourier,s=G.clone(window.__live);
+          s.position='market';s.coordinates={x:G.place('market').x,y:G.place('market').y};
+          s.player.realm=5;s.player.money=10000;
+          s.alchemy.formulas=G.ALCHEMY_RECIPES.filter(r=>r.acquisition.type==='shop').map(r=>r.id);
+          return s;}""")
+        fixture(formula, edits)
+        formula.locator('.game-nav [data-panel="cultivation"]').click()
+        text = formula.locator('#panel').inner_text()
+        assert '当前境界商店丹方已收齐' in text
+        assert formula.locator('[data-act="formula"]').is_disabled()
+        assert len(current(formula)['alchemy']['formulas']) == 36
+        exclusive_names = formula.evaluate("NightCourier.ALCHEMY_RECIPES.filter(r=>r.acquisition.type!=='shop').map(r=>r.name)")
+        assert all(name not in text for name in exclusive_names)
+        assert formula.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        record(f'{width}px 商店收齐只得 36 张，剧情/羁绊内容仍隐藏，售罄按钮禁用')
+        edits = current(formula)
+        edits['alchemy']['formulas'] = []
+        edits['bonds']['chen'].update({'met': True, 'stage': 1, 'trust': 3})
+        fixture(formula, edits)
+        formula.locator('.game-nav [data-panel="bonds"]').click()
+        text = formula.locator('#panel').inner_text()
+        assert '陈默' in text and '丹方传授 2/6' in text
+        assert '完成第 2 章' in text and '信任 9' in text
+        assert '林晚' not in text and '沈青禾' not in text
+        assert formula.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        formula.screenshot(path=str(OUT/f'formula-bonds-{width}.png'))
+        formula.click('[data-ui="close"]')
+        formula.locator('.game-nav [data-panel="cultivation"]').click()
+        text = formula.locator('#panel').inner_text()
+        assert '获取途径：羁绊 · 陈默' in text
+        hidden_names = formula.evaluate("NightCourier.ALCHEMY_RECIPES.filter(r=>!window.__live.alchemy.formulas.includes(r.id)).map(r=>r.name)")
+        assert all(name not in text for name in hidden_names)
+        record(f'{width}px 羁绊传授进度、下次条件及来源显示，未结识人物与未得丹方不泄露')
+        assert not ferrors, ferrors
+        ctx.close()
+
+    ctx, story, serrs = setup(browser, 1200, 900)
+    new_game(story, '传承')
+    edits = story.evaluate("""()=>{const G=NightCourier,s=G.clone(window.__live),
+      e=G.EVENTS.find(e=>e.id==='story-street-vein');
+      s.flags.storyStreetVein=true;
+      s.pending={...G.clone(e),id:'formula-story-browser',templateId:e.id,source:'classic',aiStatus:'skip'};
+      return s;}""")
+    fixture(story, edits)
+    assert current(story)['alchemy']['formulas'] == []
+    assert story.locator('[data-act="choose"]').count() == 3
+    story.click('[data-act="choose"][data-index="0"]')
+    assert len(current(story)['alchemy']['formulas']) == 6
+    assert story.evaluate("window.__live.alchemy.formulas.every(id=>NightCourier.alchemyRecipe(id).acquisition.event==='story-street-vein')")
+    before = current(story)
+    fixture(story, before)
+    assert current(story)['alchemy']['formulas'] == before['alchemy']['formulas']
+    story.locator('.game-nav [data-panel="cultivation"]').click()
+    assert '获取途径：剧情 · 地图上多出来的一条线' in story.locator('#panel').inner_text()
+    assert not serrs, serrs
+    record('剧情待选读档不提前领丹方，真实点击结算获得六张，重载不重复奖励')
     ctx.close()
 
     for width, height in [(390, 844), (320, 740)]:
