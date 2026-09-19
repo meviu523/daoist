@@ -2,8 +2,8 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 13;
-  G.APP_VERSION = '1.8.0';
+  G.VERSION = 14;
+  G.APP_VERSION = '1.9.0';
   G.STARTING_PLACES = Object.freeze(['home','garage']);
   G.TITLE = '外卖修仙录';
   // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
@@ -102,9 +102,13 @@
   }
   G.REALM_LEVELS = ['一重','二重','三重','四重','五重','六重','七重','八重','九重'];
   G.REALMS = [
-    { name: '凡人', need: 80 }, { name: '炼气', need: 180 }, { name: '筑基', need: 380 },
-    { name: '金丹', need: 700 }, { name: '元婴', need: 1100 }, { name: '化神', need: 1600, terminal:true }
+    { name: '凡人', need: 80, levels: 1 }, { name: '炼气', need: 180, levels: 9 }, { name: '筑基', need: 380, levels: 9 },
+    { name: '金丹', need: 700, levels: 9 }, { name: '元婴', need: 1100, levels: 9 }, { name: '化神', need: 1600, levels: 9 },
+    { name: '炼虚', need: 2300, levels: 9 }, { name: '合体', need: 3200, levels: 9 },
+    { name: '大乘', need: 4300, levels: 9 }, { name: '渡劫', need: 5600, levels: 9, terminal: true }
   ];
+  // v7–v12 凡人各重已经成功投入的修为；仅供旧档迁移，不是新的分重玩法。
+  G.LEGACY_MORTAL_PROGRESS = Object.freeze([0,5,11,18,26,35,45,56,68]);
   G.WEATHER = [ { id: 'clear', name: '晴', speed: 1 }, { id: 'cloudy', name: '多云', speed: 1 }, { id: 'rain', name: '细雨', speed: .82 }, { id: 'mist', name: '薄雾', speed: .9 } ];
   G.ORDER_TYPES = [
     { title: '一碗热汤', desc: '不要按门铃。放在门边，轻敲两下即可。', tip: 0, condition: 'ordinary' },

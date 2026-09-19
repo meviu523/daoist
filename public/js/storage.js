@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v13';
-  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v12';
-  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v11','night-courier:saves:v10','night-courier:saves:v9','night-courier:saves:v8','night-courier:saves:v7','night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
+  G.STORAGE_KEY = 'night-courier:saves:v14';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v13';
+  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v12','night-courier:saves:v11','night-courier:saves:v10','night-courier:saves:v9','night-courier:saves:v8','night-courier:saves:v7','night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -89,11 +89,28 @@
       if(!['speed','battery','durability'].includes(p.kind)||s.vehicle.levels[p.kind]>=5)throw new Error('升级行动无效。');params.kind=p.kind;
     }
     if(kind==='breakthrough'){
-      const level=num(p.realmLevel,s.player.realmLevel,1,G.REALM_LEVELS.length);
-      if(p.realm!==s.player.realm||level!==s.player.realmLevel||G.realmAtMax(s))throw new Error('突破境界与存档不一致。');
-      const expected=version<7?G.REALMS[p.realm]?.need:G.realmNeed(s);
-      params.realm=p.realm;params.realmLevel=level;params.need=num(p.need,expected,1,999999,false);params.chance=num(p.chance,53,35,95,false);
-      if(version>=7&&Math.abs(params.need-G.realmNeed(s))>1e-8)throw new Error('突破投入与当前小境界不一致。');
+      const mortal=s.player.realm===0,oldMortal=version>=7&&version<13&&mortal;
+      const oldLevel=G.LEGACY_MORTAL_PROGRESS.indexOf(s.player.mortalProgress)+1;
+      const savedLevel=p.realmLevel??(oldMortal?oldLevel:s.player.realmLevel);
+      const level=version<13&&mortal?1:savedLevel;
+      if(p.realm!==s.player.realm||level!==s.player.realmLevel||G.realmAtMax(s)||
+         (oldMortal&&savedLevel!==oldLevel))throw new Error('突破境界与存档不一致。');
+      let expected=G.realmNeed(s);
+      const legacyMortalLevel=oldMortal&&oldLevel<9?oldLevel:version>=13?p.legacyMortalLevel:undefined;
+      const legacyMajorBudget=(version<7&&!mortal)||(version>=13&&p.legacyMajorBudget===true);
+      if(legacyMortalLevel!==undefined){
+        if(!mortal||!Number.isInteger(legacyMortalLevel)||legacyMortalLevel<1||legacyMortalLevel>8||
+           G.LEGACY_MORTAL_PROGRESS[legacyMortalLevel-1]!==s.player.mortalProgress||legacyMajorBudget)throw new Error('旧版凡人突破衔接无效。');
+        params.legacyMortalLevel=legacyMortalLevel;
+        expected=G.LEGACY_MORTAL_PROGRESS[legacyMortalLevel]-s.player.mortalProgress;
+      }else if(legacyMajorBudget){
+        if(mortal||s.player.realm>5||level!==9)throw new Error('旧版大境突破衔接无效。');
+        params.legacyMajorBudget=true;expected=G.REALMS[p.realm].need;
+      }
+      const need=p.need??expected;
+      if(!Number.isFinite(need)||Math.abs(need-expected)>1e-8)throw new Error('突破投入与当前境界不一致。');
+      params.realm=p.realm;params.realmLevel=level;params.need=need;params.chance=num(p.chance,53,35,95,false);
+      if(p.pillTier!==undefined)params.pillTier=num(p.pillTier,0,0,9);
     }
     if(kind==='auction'){
       const lot=G.auctionLot(s,p.lotId);
@@ -146,7 +163,7 @@
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3,4,5,6,7,8,9,10,11,12,13].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4,5,6,7,8,9,10,11,12,13,14].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
@@ -168,8 +185,18 @@
     s.weather=G.WEATHER.some(w=>w.id===raw.weather)?raw.weather:'clear';
     s.learned=Array.isArray(raw.learned)?[...new Set(raw.learned.filter(id=>G.ITEMS.some(i=>i.id===id&&i.type==='technique')))]:[];
     s.equipment=Array.isArray(raw.equipment)?[...new Set(raw.equipment.filter(id=>G.ITEMS.some(i=>i.id===id&&i.type==='equipment')))]:[];
-    s.player.realm=num(raw.player.realm,0,0,G.REALMS.length-1);
-    s.player.realmLevel=num(raw.player.realmLevel,version<7&&raw.activity?.kind==='breakthrough'?G.REALM_LEVELS.length:1,1,G.REALM_LEVELS.length);
+    const legacyLevel=num(raw.player.realmLevel,version<7&&raw.activity?.kind==='breakthrough'?9:1,1,9);
+    s.player.realm=num(raw.player.realm,0,0,version<13?5:G.REALMS.length-1);
+    s.player.realmLevel=s.player.realm===0?1:legacyLevel;
+    if(version<13){
+      s.player.mortalProgress=s.player.realm===0&&version>=7?G.LEGACY_MORTAL_PROGRESS[legacyLevel-1]:0;
+    }else{
+      if(!Number.isInteger(raw.player.realm)||raw.player.realm!==s.player.realm||
+         !Number.isInteger(raw.player.realmLevel)||raw.player.realmLevel!==s.player.realmLevel)throw new Error('修为境界或重数无效。');
+      const progress=raw.player.mortalProgress;
+      if(!G.LEGACY_MORTAL_PROGRESS.includes(progress)||(s.player.realm!==0&&progress!==0))throw new Error('凡人旧修为抵扣记录无效。');
+      s.player.mortalProgress=progress;
+    }
     for(const k of ['money','coins','qi'])s.player[k]=num(raw.player[k],s.player[k],0,k==='money'?9999999:999999,k!=='qi');
     for(const k of ['insight','constitution','agility','luck'])s.player[k]=num(raw.player[k],5,1,99);
     for(const k of ['rep','karma'])s.player[k]=num(raw.player[k],0,-50,100);
@@ -233,13 +260,13 @@
     }
     if((s.auction.activeId||s.auction.lots.length)&&!G.placeUnlocked(s,'market'))throw new Error('拍卖记录缺少长乐集地点权限。');
     if(s.pending&&s.activity)throw new Error('待选事件与进行中行动不能同时存在。');
-    if(version>=13&&!Object.hasOwn(raw,'eventResult'))throw new Error('存档缺少事件结果状态。');
-    s.eventResult=version>=13?cleanEventResult(raw.eventResult,s):null;
+    if(version>=14&&!Object.hasOwn(raw,'eventResult'))throw new Error('存档缺少事件结果状态。');
+    s.eventResult=version>=14?cleanEventResult(raw.eventResult,s):null;
     if(s.eventResult&&(s.activeOrder||(s.activity&&s.activity.kind!=='rescue')))throw new Error('事件结果与未完成行动冲突。');
     G.validateAuctionLinks(s);
     G.restoreFeatureUnlocks(s,raw,version);
     s.schemaVersion=G.VERSION;
-    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}：既有地图、连续时间、九重境界与丹方所有权继续保留；玩法入口按已完成经历、已有物品与在途行动恢复，不重复扣费或结算；拍卖冻结款与轮次成对恢复；旧版已开放的固定地点继续保留，新地点通过外卖送达解锁。`,'存档');
+    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}：凡人合为单一境界，旧版已投入修为抵扣进入炼气的门槛；炼气及以上境界与重数保留，新增炼虚、合体、大乘、渡劫；既有地图、连续时间与丹方所有权继续保留；玩法入口按已完成经历、已有物品与在途行动恢复，不重复扣费或结算；拍卖冻结款与轮次成对恢复；旧版已开放的固定地点继续保留，新地点通过外卖送达解锁；新增空白结果状态，之后的选择实际结算后展示结果，确认不再次发奖。`,'存档');
     return s;
   };
   G.parseImport = text => {

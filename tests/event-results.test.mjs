@@ -109,11 +109,11 @@ test('损坏回执拒绝整档，显示字段白名单丢弃注入效果；多�
   const clean=read(injected);assert.equal(clean.eventResult.effects,undefined);assert.equal(clean.eventResult.delivery.reward,undefined);assert.equal(clean.player.money,s.player.money);
   const other=G.newGame('另一份旅程');assert.equal(other.eventResult,null);ack(s);assert.notEqual(s.eventResult,null);
 });
-test('v12 存储键迁入 v13，保留原文；损坏结果不静默覆盖',()=>{
+test('v12 存储键迁入 v14，保留原文；损坏结果不静默覆盖',()=>{
   class Memory{data=new Map();getItem(k){return this.data.get(k)??null;}setItem(k,v){this.data.set(k,String(v));}removeItem(k){this.data.delete(k);}}
   const memory=new Memory(),legacy=fixture();legacy.pending=null;legacy.schemaVersion=12;delete legacy.eventResult;
   const raw=JSON.stringify({version:12,saves:[legacy]});memory.setItem('night-courier:saves:v12',raw);
-  const store=G.createStore(memory);store.load();assert.equal(store.saves.length,1);assert.equal(store.saves[0].schemaVersion,13);assert.equal(store.saves[0].eventResult,null);assert.equal(memory.getItem('night-courier:saves:v12'),raw);
+  const store=G.createStore(memory);store.load();assert.equal(store.saves.length,1);assert.equal(store.saves[0].schemaVersion,14);assert.equal(store.saves[0].eventResult,null);assert.equal(memory.getItem('night-courier:saves:v12'),raw);
   const broken=choose(fixture());broken.eventResult.changes=[{key:'illegal',delta:1}];const bad=JSON.stringify({version:13,saves:[broken]});memory.setItem(G.STORAGE_KEY,bad);
   const fail=G.createStore(memory);fail.load();assert.ok(fail.warning);assert.equal(memory.getItem(G.STORAGE_KEY),bad);
 });
@@ -121,4 +121,28 @@ test('选择造成气血耗尽仍先阅读结果，之后才沿路救助',()=>{
   let s=fixture('first-order',false);s.mode='ai';s.player.health=1;s.pending.aiStatus='unrequested';
   s=G.applyAIEvent(s,s.pending.id,{title:'试探灵息',text:'气息忽然紊乱。',choices:[{label:'试探',result:'你感到一阵眩晕，路人开始呼救。',effects:{health:-10}},{label:'停下',result:'气息平复了。',effects:{}},{label:'退开',result:'你避开了紊流。',effects:{}}]});
   s=choose(s);assert.equal(s.activity.kind,'rescue');assert.ok(s.eventResult);assert.equal(G.advance(s,100),s);s=read(s);s=ack(s);const moved=G.advance(s,1);assert.ok(moved.minutes>s.minutes);
+});
+
+test('v13 境界存档迁至 v14：新增四境与旧凡人抵扣不丢失，也不补造结果',()=>{
+  for(const [realm,realmLevel,mortalProgress] of [[0,1,68],[6,9,0],[7,3,0],[8,5,0],[9,9,0]]){
+    const s=G.newGame('兼容旧境界','classic',7321);s.schemaVersion=13;delete s.eventResult;
+    Object.assign(s.player,{realm,realmLevel,mortalProgress,qi:88.5,money:450});
+    const clean=read(s);assert.equal(clean.schemaVersion,14);assert.equal(clean.eventResult,null);
+    assert.deepEqual(clean.player,s.player);assert.deepEqual(clean.inventory,s.inventory);assert.equal(clean.minutes,s.minutes);
+    assert.deepEqual(read(clean).player,clean.player);
+  }
+  const s=G.newGame('旧途中突破','classic',982);s.schemaVersion=13;delete s.eventResult;
+  s.player.mortalProgress=26;s.player.qi=23;s.player.stamina=70;
+  s.unlockedFeatures=G.FEATURE_UNLOCKS.map(f=>f.id);s.unlockedPlaces=G.PLACES.map(p=>p.id);
+  s.activity={kind:'breakthrough',params:{realm:0,realmLevel:1,need:9,chance:63,pillTier:1,legacyMortalLevel:5},target:null,phase:'work',duration:60,elapsed:17.5,startedAt:s.minutes-17.5,route:null,travelled:0,recovery:{},gainedQi:0};
+  const clean=read(s);assert.deepEqual(clean.activity,s.activity);assert.deepEqual(clean.player,s.player);assert.equal(clean.eventResult,null);
+  assert.deepEqual(read(clean).activity,clean.activity);
+});
+test('优先迁移已发布 v13 存储键；v14 空列表不复活更旧档案',()=>{
+  const s=G.newGame('v13旅程','classic',899);s.schemaVersion=13;delete s.eventResult;
+  Object.assign(s.player,{realm:6,realmLevel:7,mortalProgress:0});
+  const raw=JSON.stringify({schemaVersion:13,saves:[s]}),values=new Map([['night-courier:saves:v13',raw]]);
+  const storage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
+  const clean=G.createStore(storage).load();assert.equal(clean.length,1);assert.equal(clean[0].player.realm,6);assert.equal(clean[0].player.realmLevel,7);assert.equal(clean[0].eventResult,null);assert.equal(values.get('night-courier:saves:v13'),raw);
+  values.set(G.STORAGE_KEY,JSON.stringify({schemaVersion:14,saves:[]}));assert.deepEqual(G.createStore(storage).load(),[]);
 });
