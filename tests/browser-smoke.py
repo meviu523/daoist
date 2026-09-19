@@ -497,12 +497,77 @@ def auction_browser_checks(browser):
         record(f'{width}px 新档不继承拍卖图录或导航，旧档保留拍品和默认暂停')
         ctx.close()
 
+
+def realm_browser_checks(browser):
+    for width, height in [(1440, 1000), (390, 844)]:
+        ctx, page, errors = setup(browser, width, height)
+        new_game(page, '问道来客')
+        assert '凡人' in page.locator('.identity small').inner_text()
+        assert '凡人一重' not in page.locator('#game-header').inner_text()
+        record(f'{width}px 新档状态栏仅显示凡人，不出现凡人重数')
+        for realm, level, label, next_label in [
+            (0, 1, '凡人', '炼气一重'), (5, 9, '化神九重', '炼虚一重'),
+            (6, 9, '炼虚九重', '合体一重'), (7, 9, '合体九重', '大乘一重'),
+            (8, 9, '大乘九重', '渡劫一重'), (9, 8, '渡劫八重', '渡劫九重'),
+            (9, 9, '渡劫九重', None)
+        ]:
+            player = current(page)['player']
+            player.update(realm=realm, realmLevel=level, mortalProgress=0, qi=9999, stamina=100)
+            fixture(page, {'player': player})
+            assert label in page.locator('.identity small').inner_text()
+            page.click('.game-nav [data-panel="cultivation"]')
+            text = page.locator('#panel').inner_text()
+            assert label in text
+            assert '凡人一重' not in text and '化神九重圆满' not in text
+            if next_label:
+                assert f'下一境：{next_label}' in text
+                assert page.locator('[data-act="breakthrough"]').is_enabled()
+            else:
+                assert '渡劫九重圆满' in text
+                assert page.locator('[data-act="breakthrough"]').count() == 0
+                before = current(page)
+                forged_button(page, {'act': 'breakthrough'})
+                assert current(page) == before
+                page.screenshot(path=str(OUT/f'realm-max-{width}.png'))
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
+        record(f'{width}px 化神后四境、跨境下一阶与渡劫九重封顶显示正确，无横向溢出')
+        old = current(page)['player']
+        old.update(realm=0, realmLevel=9, mortalProgress=0, qi=12, stamina=100)
+        fixture(page, {'schemaVersion': 12, 'player': old})
+        assert current(page)['schemaVersion'] == 13
+        assert current(page)['player']['mortalProgress'] == 68
+        assert current(page)['player']['qi'] == 12
+        page.click('.game-nav [data-panel="cultivation"]')
+        text = page.locator('#panel').inner_text()
+        assert '凡人九重' not in text and '凡人一重' not in text
+        assert '下一境：炼气一重 · 需要 12 修为' in text
+        page.screenshot(path=str(OUT/f'realm-migration-{width}.png'))
+        record(f'{width}px 旧凡人九重读档为凡人，保留68修为抵扣，余额与门槛均为12')
+        player = current(page)['player']
+        player.update(realm=5, realmLevel=9, mortalProgress=0, qi=999, stamina=100)
+        fixture(page, {'player': player})
+        page.click('.game-nav [data-panel="cultivation"]')
+        page.click('[data-act="breakthrough"]')
+        before = current(page)
+        assert before['activity']['kind'] == 'breakthrough'
+        assert before['activity']['params']['need'] == 249
+        assert before['player']['qi'] == 750
+        page.click('[data-ui="home"]')
+        page.locator('[data-ui="load"]').first.click()
+        after = current(page)
+        assert after['player'] == before['player'] and after['activity'] == before['activity']
+        assert page.locator('#game-screen').get_attribute('data-paused') == 'true'
+        record(f'{width}px 化神九重可实际开始突破，重载保留投入与行动且默认暂停')
+        assert not errors, errors
+        ctx.close()
+
 with sync_playwright() as p:
     executable = os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium')
     kwargs = {'headless': True}
     if Path(executable).exists():
         kwargs['executable_path'] = executable
     browser = p.chromium.launch(**kwargs)
+    realm_browser_checks(browser)
     location_browser_checks(browser)
     auction_browser_checks(browser)
     progressive_browser_checks(browser)
@@ -518,7 +583,9 @@ with sync_playwright() as p:
     fixture(page, {})
     toggle(page)
     page.locator('.game-nav [data-panel="cultivation"]').click()
-    assert '凡人一重' in page.locator('#panel').inner_text()
+    assert '凡人' in page.locator('#panel').inner_text()
+    assert '凡人一重' not in page.locator('#panel').inner_text()
+    assert '炼气一重' in page.locator('#panel').inner_text()
     page.click('[data-ui="close"]')
     page.locator('.game-nav [data-panel="alchemy"]').click()
     assert '无药鼎' in page.locator('#panel').inner_text()
