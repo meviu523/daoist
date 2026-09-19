@@ -68,7 +68,7 @@
 | 原地充电 | 先付 ¥8，10 分钟按开始时电量缺口逐步补满，无地点要求；`G.CHARGE` 统一提供引擎、UI 和存档恢复数值 |
 | 维修/治疗/用餐 | 当地开始时付费，按进度恢复；维修、治疗 30 分钟，用餐 20 分钟 |
 | 升级 | 修车铺付费后 45 分钟，完成才提升等级 |
-| 炼药 | 先在长乐集即时购买/升级药鼎；开炉时扣灵草和灵力，18–40 分钟完成判定，中断不退投入。药鼎、悟性和炼药师熟练度影响成丹率，高阶鼎还提高额外产出概率；完成一炉后才增加熟练度 |
+| 炼药 | 先在长乐集购买并切换药鼎；当前有 24 种药鼎、64 种药材、108 张丹方。开炉时按丹方一次性扣全部药材与灵力，持续 18–42+ 分钟，中断不退投入。丹方只定义配伍、火候与难度；丹药分一至九阶，成品阶数受当前药鼎阶位和炼药师阶位共同限制。药鼎、悟性与熟练度仍影响成丹率和额外产出；完成一炉后才增加熟练度 |
 | 突破 | 开始投入本阶需求修为、20 体力及可选丹药；60 分钟完成判定。失败退回需求减去其 25% 向下取整值，中断不退投入，防止免费重试 |
 | 探索/拜访 | 当地探索 30 分钟或到达后交谈 20 分钟，完成才生成事件和更新统计 |
 | 气血耗尽救助 | 沿道路以救助速度转运至医馆，再治疗 180 分钟，无瞬移跳时，不可取消 |
@@ -78,6 +78,14 @@
 每跨入第 7、14、21… 日零点，先扣当前住处完整周租。不足则立即写入 `gameOver`，不再发放尚未完成行动的结果。若与交付或入住同刻，房租优先，不能预支配送收入；新住处仅在真正完成搬家时生效。日志使用游戏时间，`Date.now()` 仅用于存档更新时间等元数据。
 
 六个大境界统一细分为一重至九重。存档以 `player.realm` 保存大境界索引、`player.realmLevel` 保存 1–9；`G.realmNeed(s)` 将旧版每个大境界的总修为预算按逐重递增权重分摊为九次突破。成功时一至八重只升一重，九重成功才进入下一大境界一重；化神九重为上限。资源上限按大境界与小境界组成的连续 rank 平滑增长，主线、商城和结局的既有“大境界”门槛仍以 `player.realm` 判断。
+
+### 炼药数据模型
+
+炼药内容集中在 `data.js`：`ALCHEMY_MATERIALS` 固定为 64 种药材，按一至九阶分层；`ALCHEMY_RECIPES` 固定为 108 张丹方，每张保存 `product/materials/mana/duration/base/need/realm/minCauldronTier`；`CAULDRONS` 除“无药鼎”外固定为 24 种器型，并带有 `tier/success/extra/quality/realm`。丹方 ID 与丹药物品 ID 分离，旧 `heal/stamina/qi/foundation` 丹方 ID 保留用于途中存档兼容。
+
+丹药本身由 `PILL_TYPES` 定义 12 类基础产物，每类生成一至九阶成品物品。一级成品沿用旧 ID（例如 `heal`、`foundation`），二至九阶使用带阶位的派生 ID，因此旧事件与旧库存可以继续工作。炼成时先按丹方判定是否成丹；若成功，再由 `G.alchemyPillTier` 根据当前药鼎阶位与炼药师阶位给出成品阶数，并写入对应阶位库存。高阶破境丹在突破时按玩家选择自动消耗现有最高阶，阶位越高加成越大。
+
+`alchemy.cauldron` 保存当前使用的药鼎索引，`alchemy.cauldrons` 保存已拥有的 24 鼎索引集合。购买和切换都只能在长乐集执行；同阶药鼎可以有不同成丹率、额外产出和成色修正。丹方是否“掌握”由熟练度与境界门槛决定，是否可实际开炉还必须满足当前药鼎最低阶位、全部药材与灵力条件。无效开炉不得部分扣料。
 
 `seed` 随存档保存，采用 xorshift。相同种子、相同游戏时刻的指令和等量游戏时间应得到相同结果，允许浮点积分误差；创建时间与随机 ID 不属于世界随机源。
 
@@ -103,14 +111,14 @@
 
 ```js
 {
-  schemaVersion: 7,
+  schemaVersion: 8,
   id, name, mode, createdAt, updatedAt, seed,
   turn, revision, minutes, position, location, residenceId, gameOver, transport, weather,
   activity, activeOrder, orderRefreshAt,
   player: { money, coins, health, stamina, mana, qi, realm, realmLevel,
             insight, constitution, agility, luck, karma, rep },
   vehicle: { battery, durability, levels: { speed, battery, durability } },
-  alchemy: { cauldron, xp, brews, successes },
+  alchemy: { cauldron, cauldrons, xp, brews, successes },
   inventory, learned, equipment, stats,
   bonds: { /* 每人 met, affinity, trust, stage, path, lastTalkDay */ },
   daily, claimed, unlockedEndings, ending,
@@ -118,11 +126,11 @@
 }
 ```
 
-存储键：`night-courier:saves:v7`；仅在新键不存在时从 v6、v5、v4、v3 旧键显式迁移（新键的空列表不是缺失，不复活已删除存档）；上一写入备份键：`night-courier:saves:backup`。列表最多12份；每份日志最多180条，防止无界增长。
+存储键：`night-courier:saves:v8`；仅在新键不存在时从 v7、v6、v5、v4、v3 旧键显式迁移（新键的空列表不是缺失，不复活已删除存档）；上一写入备份键：`night-courier:saves:backup`。列表最多12份；每份日志最多180条，防止无界增长。
 
 `sanitizeSave()` 不把任意原始对象合并进状态，按字段白名单重建，规范数值范围，并校验人物进度、住处、破产结束状态、事件模板及待结算票据。v1–v6 只有识别到的重建字段迁移，不对未知原游戏做猜测。进行中行动按类型白名单恢复；重建合法路线，并校验当前坐标与路程一致、当地服务位置和待结算票据互斥。时间、资源、路程保留小数，不重复收取已支付成本。
 
-应用 1.3.0 将存档提升到 v7。旧 v1–v6 若没有 `realmLevel`，默认从原大境界一重继续；若旧档恰好保存了正在进行的旧规则大境突破，则按九重突破恢复，并保留旧版已投入的整阶修为，使目标仍是下一大境界。旧 v5 正在炼药但没有炼药字段时仅补一口基础药鼎以保证该炉可完成，其他旧档默认未购鼎。1.2.0 的充电兼容继续保留：旧版进行中充电若 `duration===30`，按 `elapsed / 30` 的完成比例换算至 10 分钟，保留游戏时钟、现有电量、恢复快照和已付费用，不立即发放收益。旧城区路线兼容校验继续覆盖扩城前存档。
+应用 1.4.0 将存档提升到 v8。v7 的旧三档药鼎通过 `LEGACY_CAULDRON_MAP` 显式映射到新 24 鼎中的对应器型，并把该鼎加入 `alchemy.cauldrons`；旧 `heal/stamina/qi/foundation` 库存直接作为一阶丹保留，新增药材和高阶丹库存补 0。旧 v1–v6 若没有 `realmLevel`，仍默认从原大境界一重继续；旧 v5 正在炼药但没有炼药字段时仍补一口基础药鼎保证该炉可完成。1.2.0 的充电兼容继续保留：旧版进行中充电若 `duration===30`，按 `elapsed / 30` 的完成比例换算至 10 分钟，保留游戏时钟、现有电量、恢复快照和已付费用，不立即发放收益。旧城区路线兼容校验继续覆盖扩城前存档。
 
 运行约每 10 现实秒自动保存，行动开始/完成、选择、暂停、面板打开、返回菜单和页面隐藏等关键节点补存。读取后以暂停状态恢复，不补算离线时间。
 
