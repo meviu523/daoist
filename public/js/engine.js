@@ -40,7 +40,7 @@
       turn: 0, minutes: 480, position: 'home', residenceId: 'qingteng', gameOver: null, transport: 'bike', weather: 'clear',
       player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, realmLevel: 1, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
-      alchemy: {cauldron:0,xp:0,brews:0,successes:0},
+      alchemy: {cauldron:0,cauldrons:[],xp:0,brews:0,successes:0},
       inventory: {...Object.fromEntries(G.ITEMS.filter(i=>!i.unique).map(i=>[i.id,0])),qi:1,heal:1,stamina:1}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
@@ -558,9 +558,12 @@
           else{const q=G.QUESTS.find(q=>q.id===payload.id);must(q,'委托不存在。');must(!s.claimed.includes(q.id),'奖励已经领取。');must(G.questReady(s,q),'委托条件尚未达成。');s.claimed.push(q.id);effects(s,q.reward);G.log(s,`「${q.title}」：${q.story} 奖励：${G.effectText(q.reward)}。`,'主线');}break;
         }
         case 'cauldron': {
-          must(s.position==='market','请先前往长乐集购买或升级药鼎。');
-          const next=(s.alchemy?.cauldron||0)+1,item=G.CAULDRONS[next];must(item,'药鼎已经升到最高阶。');must(s.player.realm>=item.realm,`需要进入${G.REALMS[item.realm].name}后才能驾驭${item.name}。`);must(s.player.money>=item.cost,`购买${item.name}需要 ¥${item.cost}。`);
-          s.player.money-=item.cost;s.alchemy.cauldron=next;G.log(s,`在长乐集购入${item.name}，现金 -¥${item.cost}。炼药成丹率与额外产出得到提升。`,'炼药');break;
+          must(s.position==='market','请先前往长乐集购买或更换药鼎。');
+          const owned=Array.isArray(s.alchemy.cauldrons)?s.alchemy.cauldrons:(s.alchemy.cauldron?[s.alchemy.cauldron]:[]);
+          const requested=Number(payload.id)||G.CAULDRONS.find(x=>x.level>0&&!owned.includes(x.level))?.level,item=G.CAULDRONS[requested];must(item?.level,'药鼎不存在。');
+          if(owned.includes(item.level)){s.alchemy.cauldron=item.level;G.log(s,`在长乐集换用${item.name}（${item.tier}阶）。`,'炼药');break;}
+          must(s.player.realm>=item.realm,`需要进入${G.REALMS[item.realm].name}后才能驾驭${item.name}。`);must(s.player.money>=item.cost,`购买${item.name}需要 ¥${item.cost}。`);
+          s.player.money-=item.cost;owned.push(item.level);owned.sort((a,b)=>a-b);s.alchemy.cauldrons=owned;s.alchemy.cauldron=item.level;G.log(s,`在长乐集购入${item.name}（${item.tier}阶），现金 -¥${item.cost}。已设为当前药鼎。`,'炼药');break;
         }
         case 'herb':
         case 'material': {
