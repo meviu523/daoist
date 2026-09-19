@@ -57,9 +57,10 @@
     point(p,order,status='service',enter=false){
       const task=status!=='service',offer=status==='offer',fill=task?'#e3bd75':'#d2dfc8',glyph=task?'delivery':p.kind,w=p.name.length*13+22,circ=150.8;
       const ratio=offer?this.offerProgress(this.s,order):1,dash=(circ*(1-ratio)).toFixed(2);
-      const aria=offer?`${p.name}，可接配送任务，${G.durationText(G.orderOfferRemaining(this.s,order))}后消失`:status==='active'?`${p.name}，已接配送订单，无送达时限`:p.name;
+      const discovery=G.placeUnlocked(this.s,p.id)?'':'，首次送达后解锁地点';
+      const aria=offer?`${p.name}，可接配送任务，${G.durationText(G.orderOfferRemaining(this.s,order))}后消失${discovery}`:status==='active'?`${p.name}，已接配送订单，无送达时限${discovery}`:p.name;
       const ring=offer?`<circle class="order-expiry-track" cx="0" cy="0" r="24"/><circle class="order-expiry-ring" cx="0" cy="0" r="24" transform="rotate(-90 0 0)" stroke-dasharray="${circ}" stroke-dashoffset="${dash}"/>`:'';
-      return `<g class="map-point ${offer?'order-point':status==='active'?'active-order-point':'service-point'} ${this.selected===p.id?'selected':''}" transform="translate(${p.x} ${p.y})" data-key="${escape(p.id)}" data-status="${status}" data-order-id="${order?escape(order.id):''}" data-place="${escape(p.id)}" role="button" tabindex="0" aria-label="${escape(aria)}"><g class="point-visual ${offer&&enter?'order-entering':''}"><circle class="point-halo" r="29" fill="${fill}" opacity=".10"/>${ring}<circle class="point-core" r="19" fill="#182e2c" stroke="${fill}" stroke-width="1.8" filter="url(#point-shadow)"/><path d="${shape[glyph]||shape.delivery}" fill="none" stroke="${fill}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="${-w/2}" y="27" width="${w}" height="24" rx="7" fill="#132a28" fill-opacity=".94"/><text y="43" text-anchor="middle" fill="${fill}" font-size="12.5" font-family="system-ui,sans-serif">${escape(p.name)}</text>${task?`<circle cx="16" cy="-16" r="7" fill="#e3bd75"/><text x="16" y="-13" text-anchor="middle" fill="#273b33" font-size="9" font-weight="700">${order.coins}</text>`:''}</g></g>`;
+      return `<g class="map-point ${offer?'order-point':status==='active'?'active-order-point':'service-point'} ${this.selected===p.id?'selected':''}" transform="translate(${p.x} ${p.y})" data-key="${escape(p.id)}" data-status="${status}" data-discovered="${G.placeUnlocked(this.s,p.id)}" data-order-id="${order?escape(order.id):''}" data-place="${escape(p.id)}" role="button" tabindex="0" aria-label="${escape(aria)}"><g class="point-visual ${offer&&enter?'order-entering':''}"><circle class="point-halo" r="29" fill="${fill}" opacity=".10"/>${ring}<circle class="point-core" r="19" fill="#182e2c" stroke="${fill}" stroke-width="1.8" filter="url(#point-shadow)"/><path d="${shape[glyph]||shape.delivery}" fill="none" stroke="${fill}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="${-w/2}" y="27" width="${w}" height="24" rx="7" fill="#132a28" fill-opacity=".94"/><text y="43" text-anchor="middle" fill="${fill}" font-size="12.5" font-family="system-ui,sans-serif">${escape(p.name)}</text>${task?`<circle cx="16" cy="-16" r="7" fill="#e3bd75"/><text x="16" y="-13" text-anchor="middle" fill="#273b33" font-size="9" font-weight="700">${order.coins}</text>`:''}</g></g>`;
     }
     removePoint(node){
       if(node.classList.contains('order-leaving'))return;
@@ -74,12 +75,12 @@
         const order=byId.get(node.dataset.orderId);if(!order)continue;
         const ratio=this.offerProgress(s,order),ring=node.querySelector('.order-expiry-ring');
         if(ring)ring.setAttribute('stroke-dashoffset',(circ*(1-ratio)).toFixed(2));
-        const p=G.place(order.target);node.setAttribute('aria-label',`${p.name}，可接配送任务，${G.durationText(G.orderOfferRemaining(s,order))}后消失`);
+        const p=G.place(order.target);node.setAttribute('aria-label',`${p.name}，可接配送任务，${G.durationText(G.orderOfferRemaining(s,order))}后消失${G.placeUnlocked(s,p.id)?'':'，首次送达后解锁地点'}`);
       }
     }
     render(s){
       this.s=s;if(!s)return;this.el.dataset.night=String(G.isNight(s));
-      const desired=new Map(G.PLACES.filter(p=>p.permanent).map(p=>[p.id,{p,order:null,status:'service'}]));
+      const desired=new Map(G.visibleServicePlaces(s).map(p=>[p.id,{p,order:null,status:'service'}]));
       for(const order of s.orders)desired.set(order.target,{p:G.place(order.target),order,status:'offer'});
       if(s.activeOrder)desired.set(s.activeOrder.target,{p:G.place(s.activeOrder.target),order:s.activeOrder,status:'active'});
       const layer=this.el.querySelector('.points-layer'),seen=new Set();
@@ -87,7 +88,7 @@
         const id=node.dataset.key,d=desired.get(id);
         if(!d){if(['offer','active'].includes(node.dataset.status))this.removePoint(node);else node.remove();continue;}
         const sameOrder=(node.dataset.orderId||'')===(d.order?.id||'');
-        if(node.dataset.status!==d.status||!sameOrder){
+        if(node.dataset.status!==d.status||!sameOrder||node.dataset.discovered!==String(G.placeUnlocked(s,id))){
           if(['offer','active'].includes(node.dataset.status)&&d.status!=='active')this.removePoint(node);else node.remove();
           layer.insertAdjacentHTML('beforeend',this.point(d.p,d.order,d.status,d.status==='offer'));
         }else node.classList.toggle('selected',this.selected===id);

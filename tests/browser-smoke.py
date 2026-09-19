@@ -89,7 +89,7 @@ def setup(browser, width=1440, height=1000, ai=False, controlled=True):
     return ctx, page, errors
 
 def select_order(page):
-    page.locator('.order-point').first.focus()
+    page.locator('.order-point[data-place]').first.focus()
     page.keyboard.press('Enter')
     assert page.locator('[data-act="deliver"]').is_enabled()
 
@@ -99,6 +99,7 @@ def fixture(page, edits, unlock_gameplay=True):
     edits = dict(edits)
     if unlock_gameplay:
         edits['unlockedFeatures'] = page.evaluate('NightCourier.FEATURE_UNLOCKS.map(f=>f.id)')
+        edits['unlockedPlaces'] = page.evaluate('NightCourier.PLACES.map(p=>p.id)')
     if page.locator('#panel[open] [data-ui="close"]').count():
         page.click('#panel [data-ui="close"]')
     page.click('[data-ui="home"]')
@@ -138,6 +139,77 @@ def nearest_ui_delivery(page):
     page.click('[data-act="deliver"]')
     finish_ui_activity(page)
 
+def location_browser_checks(browser):
+    for width, height in [(1200, 900), (320, 740)]:
+        ctx, page, errors = setup(browser, width, height)
+        new_game(page, '送餐识路')
+        assert current(page)['unlockedPlaces'] == ['home']
+        assert page.locator('.service-point').evaluate_all('(els)=>els.map(e=>e.dataset.place)') == ['home']
+        target = page.evaluate('''()=>{const G=NightCourier,s=window.__live;return s.orders.find(o=>G.place(o.target).permanent&&!G.placeUnlocked(s,o.target)).target;}''')
+        page.locator('#game-nav [data-panel="rest"]').click()
+        assert page.locator('[data-act="moveHome"]').count() == 0
+        page.click('[data-ui="close"]')
+        marker = page.locator(f'.order-point[data-place="{target}"]')
+        assert '首次送达后解锁地点' in marker.get_attribute('aria-label')
+        marker.focus();page.keyboard.press('Enter')
+        assert '首次送达' in page.locator('#panel').inner_text()
+        assert page.locator('[data-act="travel"]').count() == 0
+        assert page.locator('[data-act="meal"], [data-act="heal"], [data-act="visit"], [data-act="panel-vehicle"]').count() == 0
+        before = current(page)
+        forged_button(page, {'act':'travel','target':target})
+        assert current(page) == before
+        page.screenshot(path=str(OUT/f'location-locked-{width}.png'))
+        record(f'{width}px 新档只开放小屋，未知订单提示送达解锁且不展示当地服务或搬家入口')
+
+        page.click('[data-act="deliver"]')
+        pump(page, 200)
+        assert current(page)['activity'] is not None
+        assert current(page)['unlockedPlaces'] == ['home']
+        page.click('#action-bar [data-act="stop"]')
+        assert current(page)['unlockedPlaces'] == ['home']
+        page.click('#action-bar [data-act="resumeDelivery"]')
+        finish_ui_activity(page)
+        assert current(page)['position'] == target
+        assert current(page)['pending']['delivery']['target'] == target
+        assert current(page)['unlockedPlaces'] == ['home']
+        memory = page.evaluate('Array.from(window.__memory.entries())')
+        assert not errors, errors
+        ctx.close()
+        ctx, page, errors = setup(browser, width, height)
+        page.evaluate('''entries=>{window.__memory=new Map(entries);window.dispatchEvent(new StorageEvent('storage',{key:NightCourier.STORAGE_KEY}));}''', memory)
+        page.locator('[data-ui="load"]').first.click()
+        assert current(page)['unlockedPlaces'] == ['home']
+        choose_ui(page)
+        assert target in current(page)['unlockedPlaces']
+        assert len([l for l in current(page)['logs'] if l['tag']=='地点']) == 1
+        page.wait_for_timeout(380)
+        service = page.locator(f'.service-point[data-place="{target}"]')
+        assert service.count() == 1 and service.get_attribute('data-discovered') == 'true'
+        assert service.locator('.order-expiry-ring').count() == 0
+        assert not page.locator('.trail-layer path').count()
+        page.click('[data-ui="home"]');page.locator('[data-ui="load"]').first.click()
+        assert target in current(page)['unlockedPlaces']
+        assert current(page)['stats']['delivered'] == 1
+        assert len([l for l in current(page)['logs'] if l['tag']=='地点']) == 1
+        assert page.locator('#game-screen').get_attribute('data-paused') == 'true'
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        page.screenshot(path=str(OUT/f'location-discovered-{width}.png'))
+        record(f'{width}px 实际配送中断续送与待选读档不提前解锁，结算后常驻且重载不重复奖励')
+
+        page.click('[data-ui="home"]');new_game(page, '未抵达')
+        assert current(page)['unlockedPlaces'] == ['home']
+        select_order(page)
+        page.click('[data-act="deliver"]');pump(page, 100)
+        page.click('#action-bar [data-act="stop"]')
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.click('[data-ui="cancel-delivery"]')
+        assert current(page)['activeOrder'] is None
+        assert current(page)['unlockedPlaces'] == ['home']
+        assert current(page)['stats']['delivered'] == 0
+        assert not errors, errors
+        record(f'{width}px 新旧存档地点隔离，真实取消配送不开放目的地，页面无运行异常')
+        ctx.close()
+
 def progressive_browser_checks(browser):
     for width, height in [(1200, 900), (320, 740)]:
         ctx, page, errors = setup(browser, width, height)
@@ -154,8 +226,8 @@ def progressive_browser_checks(browser):
             assert not page.locator('#panel').evaluate('(e)=>e.open')
             assert current(page) == before
             assert not page.evaluate("window.__clock.reasons.has('panel')")
-        # Location-only fixture: it does not grant progression or inventory.
-        fixture(page, {'position':'market','location':None}, unlock_gameplay=False)
+        # Previously discovered location fixture: no feature or inventory grants.
+        fixture(page, {'position':'market','location':None,'unlockedPlaces':['home','market']}, unlock_gameplay=False)
         page.locator('[data-place="market"]').focus();page.keyboard.press('Enter')
         assert page.locator('[data-act="panel-alchemy"]').count() == 0
         assert page.locator('[data-act="meal"]').count() == 1
@@ -304,6 +376,7 @@ def auction_browser_checks(browser):
         # Isolate the unlock threshold and route without replaying nine unrelated deliveries.
         edits = current(page)
         edits['unlockedFeatures'] = ['system', 'cultivation', 'alchemy']
+        edits['unlockedPlaces'] = ['home', 'market']
         edits['stats']['delivered'] = 9
         edits['player']['money'] = 10000
         edits['flags'].update({'firstOrder':True, 'storyStreetVein':True})
@@ -430,6 +503,7 @@ with sync_playwright() as p:
     if Path(executable).exists():
         kwargs['executable_path'] = executable
     browser = p.chromium.launch(**kwargs)
+    location_browser_checks(browser)
     auction_browser_checks(browser)
     progressive_browser_checks(browser)
     ctx, page, errors = setup(browser)
@@ -620,7 +694,7 @@ with sync_playwright() as p:
     ctx, craft, cerrors = setup(browser, 1200, 900)
     new_game(craft, '药童')
     craft.click('[data-ui="home"]')
-    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.player.money=10000;s.alchemy.xp=999;s.unlockedFeatures=NightCourier.FEATURE_UNLOCKS.map(f=>f.id);for(const m of NightCourier.ALCHEMY_MATERIALS)s.inventory[m.id]=10;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
+    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.player.money=10000;s.alchemy.xp=999;s.unlockedFeatures=NightCourier.FEATURE_UNLOCKS.map(f=>f.id);s.unlockedPlaces=NightCourier.PLACES.map(p=>p.id);for(const m of NightCourier.ALCHEMY_MATERIALS)s.inventory[m.id]=10;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
     craft.locator('[data-ui="load"]').first.click()
     assert current(craft)['player']['money'] == 10000
     craft.locator('[data-place="market"]').focus();craft.keyboard.press('Enter')

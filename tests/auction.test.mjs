@@ -12,7 +12,7 @@ const choose=(s,index)=>act(s,'choose',{eventId:s.pending.id,index});
 const atomic=(s,action,p={})=>{const before=JSON.stringify(s),r=G.perform(s,action,p);assert.equal(r.ok,false);assert.equal(r.state,s);assert.equal(JSON.stringify(s),before);return r.error;};
 // Auction-isolated fixtures suppress unrelated story prompts but do not grant goods or auction wins.
 function eligible(seed=123,realm=0){
-  const s=G.newGame('万宝客','classic',seed);s.unlockedFeatures=G.FEATURE_UNLOCKS.map(f=>f.id);
+  const s=G.newGame('万宝客','classic',seed);s.unlockedPlaces=G.PLACES.map(p=>p.id);s.unlockedFeatures=G.FEATURE_UNLOCKS.map(f=>f.id);
   s.position='market';s.minutes=1080;s.player.money=10000;s.player.realm=realm;
   s.flags.firstOrder=true;for(const e of G.EVENTS.filter(e=>e.kind==='story'))s.flags[e.flag]=true;
   G.syncFormulaRewards(s);return s;
@@ -197,7 +197,7 @@ test('待选轮次或当前指针丢失不允许继续读取',()=>{
 });
 test('v10迁移初始化拍卖但不赠送拍品或预扣费用，原解锁和在途行动保留',()=>{
   let s=eligible();s=act(s,'rest');s=G.advance(s,5);s.schemaVersion=10;delete s.auction;
-  const before=G.clone(s),a=read(s);assert.equal(a.schemaVersion,11);assert.deepEqual(a.auction,G.emptyAuction());
+  const before=G.clone(s),a=read(s);assert.equal(a.schemaVersion,G.VERSION);assert.deepEqual(a.auction,G.emptyAuction());
   assert.deepEqual(a.inventory,before.inventory);assert.equal(a.player.money,before.player.money);assert.equal(a.activity.elapsed,before.activity.elapsed);
   assert.ok(a.unlockedFeatures.includes('alchemy'));
 });

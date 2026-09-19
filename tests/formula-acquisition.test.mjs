@@ -5,8 +5,8 @@ import '../public/js/engine.js';
 import '../public/js/storage.js';
 import '../public/js/progression.js';
 const G=globalThis.NightCourier;
-// 专项回归使用已开启入口的夹具；真实新档解锁由 gameplay-unlocks.test.mjs 覆盖。
-const fresh=(mode='classic')=>Object.assign(G.newGame('传方',mode,789),{unlockedFeatures:G.FEATURE_UNLOCKS.map(f=>f.id)});
+// 专项回归使用已开启入口的夹具；真实新档功能与地点解锁由 gameplay-unlocks/location-unlocks 专项覆盖。
+const fresh=(mode='classic')=>Object.assign(G.newGame('传方',mode,789),{unlockedFeatures:G.FEATURE_UNLOCKS.map(f=>f.id),unlockedPlaces:G.PLACES.map(p=>p.id)});
 const act=(s,action,payload={})=>{const r=G.perform(s,action,payload);assert.ok(r.ok,r.error);return r.state;};
 const finish=s=>{for(let i=0;s.activity&&i<200;i++)s=G.advance(s,1);assert.equal(s.activity,null);return s;};
 const copy=s=>G.sanitizeSave(G.clone(s));

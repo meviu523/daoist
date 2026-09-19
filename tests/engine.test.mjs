@@ -5,8 +5,8 @@ import '../public/js/engine.js';
 import '../public/js/storage.js';
 import '../public/js/progression.js';
 const G=globalThis.NightCourier;
-// 专项回归使用已开启入口的夹具；真实新档解锁由 gameplay-unlocks.test.mjs 覆盖。
-const fresh=(mode='classic',seed=987654321)=>Object.assign(G.newGame('云行',mode,seed),{unlockedFeatures:G.FEATURE_UNLOCKS.map(f=>f.id)});
+// 专项回归使用已开启入口的夹具；真实新档功能与地点解锁由 gameplay-unlocks/location-unlocks 专项覆盖。
+const fresh=(mode='classic',seed=987654321)=>Object.assign(G.newGame('云行',mode,seed),{unlockedFeatures:G.FEATURE_UNLOCKS.map(f=>f.id),unlockedPlaces:G.PLACES.map(p=>p.id)});
 // Legacy gameplay scenarios now wait through the real simulation; no instant
 // settlement entry point exists in production or tests.
 const complete=s=>{for(let i=0;s.activity&&!s.pending&&!s.gameOver&&i<5000;i++)s=G.advance(s,Math.max(1e-7,Math.min(1,G.activityRemaining(s))));assert.ok(!s.activity||s.gameOver,'行动应当完成');return s;};

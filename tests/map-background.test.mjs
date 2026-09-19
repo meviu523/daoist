@@ -8,7 +8,8 @@ import '../public/js/clock.js';
 import '../public/js/storage.js';
 const G=globalThis.NightCourier;
 const legacy=JSON.parse(readFileSync(new URL('./fixtures/legacy-city-v5.json',import.meta.url),'utf8'));
-const fresh=()=>G.newGame('远行','classic',123456);
+// 路网与计时专项夹具明确开放地点；真实新档另测。
+const fresh=()=>Object.assign(G.newGame('远行','classic',123456),{unlockedPlaces:G.PLACES.map(p=>p.id)});
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-6,`${a} != ${b}`);
 function runClock(s,speed=1){
   const c=new G.GameClock(dt=>{s=G.advance(s,dt);if(s.pending||s.ending||s.gameOver)c.pause('event');});
