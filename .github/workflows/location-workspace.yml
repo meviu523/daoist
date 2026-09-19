@@ -1,0 +1,34 @@
+name: Location change workspace
+on:
+  push:
+    branches: [feature/delivery-location-unlocks]
+    paths: [.github/workflows/location-workspace.yml, scripts/location-change.patch]
+permissions:
+  contents: write
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Apply reviewed source patch
+        if: hashFiles('scripts/location-change.patch') != ''
+        run: |
+          git apply --check scripts/location-change.patch
+          git apply scripts/location-change.patch
+          git diff --check
+          git config user.name 'meviu523'
+          git config user.email 'game.riversoft@gmail.com'
+          git add public tests docs README.md PROJECT_MEMORY.md package.json
+          git commit -m 'feat: unlock city locations through completed deliveries'
+          git push origin HEAD:refs/heads/feature/delivery-location-unlocks
+      - name: Export workspace for verification
+        if: always()
+        run: git archive HEAD -o /tmp/location-workspace.tar
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: location-workspace
+          path: /tmp/location-workspace.tar
+          retention-days: 1
