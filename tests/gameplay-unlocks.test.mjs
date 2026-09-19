@@ -129,11 +129,11 @@ test('主线仅显示已领取与下一篇，直接构造后续领取不能绕�
   s=act(s,'claim',{id:'q1'});assert.deepEqual(G.visibleQuests(s).map(q=>q.id),['q1','q2']);
   s=act(s,'claim',{id:'q2'});assert.deepEqual(G.visibleQuests(s).map(q=>q.id),['q1','q2','q3']);
 });
-test('开局低资源可基础自救；维修搬家还需地点解锁',()=>{
+test('开局低资源可基础自救；维修默认开放，搬家还需地点解锁',()=>{
   let s=fresh();s.player.stamina=10;s.player.health=30;s.vehicle.battery=0;
   assert.ok(G.perform(s,'rest').ok);assert.ok(G.perform(s,'use',{id:'heal'}).ok);
   assert.ok(G.perform(s,'transport',{mode:'walk'}).ok);assert.ok(G.perform(s,'charge').ok);
-  s.position='garage';s.vehicle.durability=50;assert.equal(G.perform(s,'repair').ok,false);s.unlockedPlaces.push('garage');assert.ok(G.perform(s,'repair').ok);
+  s.position='garage';s.vehicle.durability=50;assert.ok(G.perform(s,'repair').ok);
   s.position='home';s.player.stamina=100;s.transport='walk';assert.ok(G.perform(s,'sleep').ok);
   assert.equal(G.perform(s,'moveHome',{id:'qiyun'}).ok,false);s.unlockedPlaces.push('stop-3');assert.ok(G.perform(s,'moveHome',{id:'qiyun'}).ok);
   s.player.money=0;assert.ok(G.perform(s,'rest').ok);assert.ok(G.perform(s,'transport',{mode:'walk'}).ok);

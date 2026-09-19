@@ -143,8 +143,8 @@ def location_browser_checks(browser):
     for width, height in [(1200, 900), (320, 740)]:
         ctx, page, errors = setup(browser, width, height)
         new_game(page, '送餐识路')
-        assert current(page)['unlockedPlaces'] == ['home']
-        assert page.locator('.service-point').evaluate_all('(els)=>els.map(e=>e.dataset.place)') == ['home']
+        assert current(page)['unlockedPlaces'] == ['home', 'garage']
+        assert page.locator('.service-point').evaluate_all('(els)=>els.map(e=>e.dataset.place)') == ['home', 'garage']
         target = page.evaluate('''()=>{const G=NightCourier,s=window.__live;return s.orders.find(o=>G.place(o.target).permanent&&!G.placeUnlocked(s,o.target)).target;}''')
         page.locator('#game-nav [data-panel="rest"]').click()
         assert page.locator('[data-act="moveHome"]').count() == 0
@@ -159,26 +159,26 @@ def location_browser_checks(browser):
         forged_button(page, {'act':'travel','target':target})
         assert current(page) == before
         page.screenshot(path=str(OUT/f'location-locked-{width}.png'))
-        record(f'{width}px 新档只开放小屋，未知订单提示送达解锁且不展示当地服务或搬家入口')
+        record(f'{width}px 新档默认开放小屋和修车点，未知订单提示送达解锁且不展示当地服务或搬家入口')
 
         page.click('[data-act="deliver"]')
         pump(page, 200)
         assert current(page)['activity'] is not None
-        assert current(page)['unlockedPlaces'] == ['home']
+        assert current(page)['unlockedPlaces'] == ['home', 'garage']
         page.click('#action-bar [data-act="stop"]')
-        assert current(page)['unlockedPlaces'] == ['home']
+        assert current(page)['unlockedPlaces'] == ['home', 'garage']
         page.click('#action-bar [data-act="resumeDelivery"]')
         finish_ui_activity(page)
         assert current(page)['position'] == target
         assert current(page)['pending']['delivery']['target'] == target
-        assert current(page)['unlockedPlaces'] == ['home']
+        assert current(page)['unlockedPlaces'] == ['home', 'garage']
         memory = page.evaluate('Array.from(window.__memory.entries())')
         assert not errors, errors
         ctx.close()
         ctx, page, errors = setup(browser, width, height)
         page.evaluate('''entries=>{window.__memory=new Map(entries);window.dispatchEvent(new StorageEvent('storage',{key:NightCourier.STORAGE_KEY}));}''', memory)
         page.locator('[data-ui="load"]').first.click()
-        assert current(page)['unlockedPlaces'] == ['home']
+        assert current(page)['unlockedPlaces'] == ['home', 'garage']
         choose_ui(page)
         assert target in current(page)['unlockedPlaces']
         assert len([l for l in current(page)['logs'] if l['tag']=='地点']) == 1
@@ -197,14 +197,14 @@ def location_browser_checks(browser):
         record(f'{width}px 实际配送中断续送与待选读档不提前解锁，结算后常驻且重载不重复奖励')
 
         page.click('[data-ui="home"]');new_game(page, '未抵达')
-        assert current(page)['unlockedPlaces'] == ['home']
+        assert current(page)['unlockedPlaces'] == ['home', 'garage']
         select_order(page)
         page.click('[data-act="deliver"]');pump(page, 100)
         page.click('#action-bar [data-act="stop"]')
         page.once('dialog', lambda dialog: dialog.accept())
         page.click('[data-ui="cancel-delivery"]')
         assert current(page)['activeOrder'] is None
-        assert current(page)['unlockedPlaces'] == ['home']
+        assert current(page)['unlockedPlaces'] == ['home', 'garage']
         assert current(page)['stats']['delivered'] == 0
         assert not errors, errors
         record(f'{width}px 新旧存档地点隔离，真实取消配送不开放目的地，页面无运行异常')
