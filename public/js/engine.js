@@ -16,19 +16,22 @@
   G.timestamp = m => `第${Math.floor(displayMinute(m)/1440)+1}日 ${G.clock({minutes:m})}`;
   G.rand = s => { let x = s.seed >>> 0 || 1; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; s.seed = x >>> 0; return s.seed / 4294967296; };
   const int = (s, min, max) => Math.floor(G.rand(s) * (max - min + 1)) + min;
-  G.realmLevel = s => clamp(Number(s.player.realmLevel)||1,1,G.REALM_LEVELS.length);
+  G.realmLevelCount = realm => G.REALMS[realm]?.levels || 1;
+  G.realmLevel = s => clamp(Math.floor(Number(s.player.realmLevel))||1,1,G.realmLevelCount(s.player.realm));
+  // 强度 rank 保留炼气及以上的旧数值，不能因移除凡人八重而削减既有属性上限。
   G.realmRank = s => s.player.realm*G.REALM_LEVELS.length+(G.realmLevel(s)-1);
-  G.realmLabel = s => `${G.REALMS[s.player.realm]?.name||'凡人'}${G.REALM_LEVELS[G.realmLevel(s)-1]}`;
-  G.realmAtMax = s => s.player.realm===G.REALMS.length-1&&G.realmLevel(s)===G.REALM_LEVELS.length;
+  G.realmLabel = s => `${G.REALMS[s.player.realm]?.name||'凡人'}${G.realmLevelCount(s.player.realm)>1?G.REALM_LEVELS[G.realmLevel(s)-1]:''}`;
+  G.realmAtMax = s => s.player.realm===G.REALMS.length-1&&G.realmLevel(s)===G.realmLevelCount(s.player.realm);
   G.realmNeed = s => {
     if(G.realmAtMax(s))return 0;
     const total=G.REALMS[s.player.realm]?.need||0,level=G.realmLevel(s);
-    return Math.max(1,Math.round(total*(5+level)/90));
+    return s.player.realm===0?Math.max(1,total-(s.player.mortalProgress||0)):Math.max(1,Math.round(total*(5+level)/90));
   };
   G.nextRealmLabel = s => {
     if(G.realmAtMax(s))return null;
     const level=G.realmLevel(s);
-    return level<G.REALM_LEVELS.length?`${G.REALMS[s.player.realm].name}${G.REALM_LEVELS[level]}`:`${G.REALMS[s.player.realm+1].name}${G.REALM_LEVELS[0]}`;
+    const realm=s.player.realm,next=level<G.realmLevelCount(realm)?{realm,realmLevel:level+1}:{realm:realm+1,realmLevel:1};
+    return G.realmLabel({player:next});
   };
   G.limits = s => {const rank=G.realmRank(s);return {health:100+Math.floor(rank*12/9)+(s.equipment.includes('robe')?25:0),stamina:100+Math.floor(rank*8/9),mana:60+Math.floor(rank*16/9)+(s.equipment.includes('jade')?30:0),battery:80+s.vehicle.levels.battery*35,durability:100+s.vehicle.levels.durability*30};};
   G.log = (s, text, tag = '日常') => { s.logs.push({ id: `${s.turn}-${s.logs.length}-${s.seed}`, at: s.minutes, tag, text: String(text).slice(0, 600) }); s.logs = s.logs.slice(-180); };
@@ -64,7 +67,7 @@
     const s = {
       schemaVersion: G.VERSION, id, name, mode, createdAt: Date.now(), updatedAt: Date.now(), seed: (Number(seed) >>> 0) || 1,
       turn: 0, minutes: 480, position: 'home', residenceId: 'qingteng', gameOver: null, transport: 'bike', weather: 'clear',
-      player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, realmLevel: 1, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
+      player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, realmLevel: 1, mortalProgress: 0, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
       alchemy: {cauldron:0,cauldrons:[],formulas:[],xp:0,brews:0,successes:0},
       auction:G.emptyAuction(),
@@ -216,8 +219,8 @@
     const grant=id=>{if(!s.unlockedFeatures.includes(id))s.unlockedFeatures.push(id);};
     if(version<10){
       if(s.player.coins>0||s.daily.signedDay>0||s.claimed.length||s.learned.length||s.equipment.length)grant('system');
-      if(s.player.qi>0||G.realmRank(s)>0||s.stats.trained>0)grant('cultivation');
-      if(s.stats.trained>0||G.realmRank(s)>0||s.stats.explored>0)grant('practice');
+      if(s.player.qi>0||s.player.mortalProgress>0||G.realmRank(s)>0||s.stats.trained>0)grant('cultivation');
+      if(s.stats.trained>0||s.player.mortalProgress>0||G.realmRank(s)>0||s.stats.explored>0)grant('practice');
       if(s.alchemy.cauldrons.length||s.alchemy.formulas.length||s.alchemy.xp>0||s.alchemy.brews>0||G.ALCHEMY_MATERIALS.some(m=>s.inventory[m.id]>0))grant('alchemy');
       if(Object.values(s.vehicle.levels).some(n=>n>0))grant('upgrades');
       if(s.ending||s.unlockedEndings.length)grant('endings');
@@ -599,8 +602,12 @@
       case 'breakthrough':{
         const need=a.params.need;
         if(G.rand(s)*100<a.params.chance){
-          const major=G.realmLevel(s)===G.REALM_LEVELS.length;
-          if(major){s.player.realm++;s.player.realmLevel=1;effects(s,{health:12,stamina:8,mana:16,insight:1,constitution:1,agility:1});G.log(s,`大境突破成功，踏入${G.realmLabel(s)}。`,'破境');}
+          const major=G.realmLevel(s)===G.realmLevelCount(s.player.realm);
+          if(a.params.legacyMortalLevel){
+            // 旧版未完成的小重突破只结清原投入，不凭一次小额投入自动跨入炼气。
+            s.player.mortalProgress+=need;effects(s,{health:2,stamina:1,mana:2});
+            G.log(s,`旧版凡人突破完成，已投入修为累计 ${s.player.mortalProgress}，抵扣进入炼气的门槛；下次需 ${G.realmNeed(s)} 修为。`,'破境');
+          }else if(major){s.player.realm++;s.player.realmLevel=1;s.player.mortalProgress=0;effects(s,{health:12,stamina:8,mana:16,insight:1,constitution:1,agility:1});G.log(s,`大境突破成功，踏入${G.realmLabel(s)}。`,'破境');}
           else{s.player.realmLevel++;effects(s,{health:2,stamina:1,mana:2});G.log(s,`突破成功，修为稳固至${G.realmLabel(s)}。`,'破境');}
         }else{s.player.qi+=need-Math.floor(need*.25);const protectedByCharm=(s.inventory.charm||0)>0;if(protectedByCharm)s.inventory.charm--;else s.player.health-=18;G.log(s,`突破未成，退回 75% 左右修为。${protectedByCharm?'护身符消散，护住经脉。':'气血 -18。'}`,'破境');}break;
       }
@@ -800,7 +807,7 @@
           must(s.player.stamina>=(kind==='meditate'?24:kind==='body'?20:12),'体力不足，请先休息。');begin(s,'cultivate',{kind});G.log(s,'开始修炼，体力消耗与修为增长随时间进行。','修炼');break;
         }
         case 'breakthrough':{
-          const realm=s.player.realm,realmLevel=G.realmLevel(s),need=G.realmNeed(s);must(need>0,'已达化神九重。');must(s.player.qi>=need,`需要 ${need} 修为。`);must(s.player.stamina>=20,'突破需要至少 20 点体力。');
+          const realm=s.player.realm,realmLevel=G.realmLevel(s),need=G.realmNeed(s);must(need>0,`已达${G.realmLabel(s)}。`);must(s.player.qi>=need,`需要 ${need} 修为。`);must(s.player.stamina>=20,'突破需要至少 20 点体力。');
           const pillTier=payload.usePill?G.highestPillTier(s,'foundation'):0;if(payload.usePill)must(pillTier>0,'背包里没有破境丹。');
           begin(s,'breakthrough',{realm,realmLevel,need,chance:G.breakChance(s,pillTier),pillTier});if(payload.usePill)G.consumeHighestPill(s,'foundation');s.player.stamina-=20;s.player.qi-=need;
           G.log(s,`开始从${G.realmLabel(s)}突破至${G.nextRealmLabel(s)}，投入 ${need} 修为与 20 体力。${pillTier?`服用${pillTier}阶破境丹，成功率 +${G.breakthroughPillBonus(pillTier)}%。`:''}中断不退还投入；失败将退回约 75% 修为。`,'破境');break;

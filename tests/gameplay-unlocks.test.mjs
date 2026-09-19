@@ -67,7 +67,8 @@ test('首次吐纳途中、中断和途中读档不开放进阶；完成才开�
   s=act(s,'stop');assert.equal(G.featureUnlocked(s,'practice'),false);
   s=settle(finish(act(s,'cultivate',{kind:'breath'})));
   assert.equal(s.stats.trained,1);assert.ok(s.unlockedFeatures.includes('practice'));
-  assert.ok(G.perform(s,'cultivate',{kind:'meditate'}).ok);assert.ok(G.perform(s,'breakthrough').ok);
+  assert.ok(G.perform(s,'cultivate',{kind:'meditate'}).ok);assert.equal(G.featureBlock(s,'breakthrough'),'');
+  s.player.qi=G.realmNeed(s);assert.ok(G.perform(s,'breakthrough').ok);
   s.position='park';assert.equal(G.perform(s,'explore').ok,false);s.unlockedPlaces.push('park');assert.ok(G.perform(s,'explore').ok);
 });
 test('三单主线待选时不开放炼药，真实新档可连续解锁到炼药',()=>{
