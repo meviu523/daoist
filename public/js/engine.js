@@ -338,11 +338,12 @@
       }
       case 'alchemy':{
         const recipe=G.alchemyRecipe(a.params.recipe),success=G.rand(s)<G.alchemyChance(s,recipe);
-        s.alchemy.brews++;s.alchemy.xp+=success?1+Math.ceil(recipe.complexity/3):1;let count=0,tier=0;
+        let count=0,tier=0;
         if(success){
           tier=G.alchemyPillTier(s,G.rand(s));count=1;if(G.rand(s)<G.alchemyExtraChance(s))count++;
           const itemId=G.pillItemId(recipe.product,tier);s.inventory[itemId]=(s.inventory[itemId]||0)+count;s.alchemy.successes++;
         }
+        s.alchemy.brews++;s.alchemy.xp+=success?1+Math.ceil(recipe.complexity/3):1;
         const rank=G.ALCHEMY_RANKS[G.alchemyRank(s)].name,pill=G.pillType(recipe.product);
         G.log(s,success?`按${recipe.name}，以${G.cauldron(s).name}炼成${tier}阶${pill.name} ×${count}。炼药熟练度 ${s.alchemy.xp}，当前 ${rank}。`:`按${recipe.name}开炉失败，药力散去。药材已消耗；炼药熟练度 +1。`,'炼药');break;
       }
