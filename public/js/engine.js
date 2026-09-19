@@ -40,7 +40,7 @@
       turn: 0, minutes: 480, position: 'home', residenceId: 'qingteng', gameOver: null, transport: 'bike', weather: 'clear',
       player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, realmLevel: 1, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
-      alchemy: {cauldron:0,cauldrons:[],xp:0,brews:0,successes:0},
+      alchemy: {cauldron:0,cauldrons:[],formulas:[],xp:0,brews:0,successes:0},
       inventory: {...Object.fromEntries(G.ITEMS.filter(i=>!i.unique).map(i=>[i.id,0])),qi:1,heal:1,stamina:1}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
@@ -144,7 +144,11 @@
   G.alchemyMaterial = id => G.ALCHEMY_MATERIALS.find(m=>m.id===id);
   G.alchemyMaterials = recipe => recipe?.materials || (recipe?.herbs ? {herb:recipe.herbs} : {});
   G.alchemyMaterialText = recipe => Object.entries(G.alchemyMaterials(recipe)).map(([id,count])=>`${G.alchemyMaterial(id)?.name || G.ITEMS.find(i=>i.id===id)?.name || id} ×${count}`).join(' · ');
-  G.alchemyUnlocked = (s,recipe) => !!recipe && s.player.realm>=recipe.realm && (s.alchemy?.xp||0)>=recipe.need;
+  G.alchemyHasFormula = (s,recipe) => !!recipe && Array.isArray(s.alchemy?.formulas) && s.alchemy.formulas.includes(recipe.id);
+  G.formulaMarketCandidates = s => G.ALCHEMY_RECIPES.filter(r=>r.realm<=s.player.realm&&!G.alchemyHasFormula(s,r));
+  G.formulaScrollCost = s => 45+s.player.realm*30;
+  G.alchemyQualified = (s,recipe) => !!recipe && s.player.realm>=recipe.realm && (s.alchemy?.xp||0)>=recipe.need;
+  G.alchemyUnlocked = (s,recipe) => G.alchemyHasFormula(s,recipe) && G.alchemyQualified(s,recipe);
   G.alchemyCauldronReady = (s,recipe) => !!recipe && (G.cauldron(s).tier||0)>=recipe.minCauldronTier;
   G.alchemyChance = (s,recipe) => clamp(recipe.base+s.player.insight*.007+G.cauldron(s).success+(G.alchemistTier(s)-1)*.015,.20,.98);
   G.alchemyExtraChance = s => clamp(G.cauldron(s).extra+(G.alchemistTier(s)-1)*.02+s.player.insight*.002,0,.65);
@@ -350,8 +354,10 @@
       case 'explore':{
         s.stats.explored++;
         const maxTier=Math.min(9,1+s.player.realm*2+(s.position==='temple'?1:0)),pool=G.ALCHEMY_MATERIALS.filter(m=>m.realm<=s.player.realm&&m.tier<=maxTier);
-        const chance=Math.min(.45,.05+s.player.luck*.01),roll=G.rand(s);
-        if(pool.length&&roll<chance){const bias=G.isNight(s)?3:0,material=pool[(Math.floor(roll/Math.max(chance,EPS)*pool.length)+bias)%pool.length];s.inventory[material.id]=(s.inventory[material.id]||0)+1;G.log(s,`探索时额外发现${material.name} ×1。`,'机缘');}
+        const materialChance=Math.min(.45,.05+s.player.luck*.01),formulaChance=Math.min(.24,.025+s.player.luck*.004),roll=G.rand(s),bias=G.isNight(s)?3:0;
+        if(pool.length&&roll<materialChance){const material=pool[(Math.floor(roll/Math.max(materialChance,EPS)*pool.length)+bias)%pool.length];s.inventory[material.id]=(s.inventory[material.id]||0)+1;G.log(s,`探索时额外发现${material.name} ×1。`,'机缘');}
+        const unknown=G.ALCHEMY_RECIPES.filter(r=>r.realm<=s.player.realm&&!G.alchemyHasFormula(s,r));
+        if(unknown.length&&roll<formulaChance){const recipe=unknown[(Math.floor(roll/Math.max(formulaChance,EPS)*unknown.length)+bias)%unknown.length];s.alchemy.formulas.push(recipe.id);G.log(s,`在残页与旧药录里辨认出丹方《${recipe.name}》。已永久收录。`,'炼药');}
         event(s,'explore');G.log(s,`在${G.locationName(s)}探索半小时，遇见一段新的故事。`,'探索');break;
       }
       case 'visit':finishVisit(s,a.params.id);break;
@@ -526,7 +532,7 @@
           G.log(s,`开始从${G.realmLabel(s)}突破至${G.nextRealmLabel(s)}，投入 ${need} 修为与 20 体力。${pillTier?`服用${pillTier}阶破境丹，成功率 +${G.breakthroughPillBonus(pillTier)}%。`:''}中断不退还投入；失败将退回约 75% 修为。`,'破境');break;
         }
         case 'alchemy':{
-          const recipe=G.alchemyRecipe(payload.recipe);must(recipe,'丹方不存在。');must((s.alchemy?.cauldron||0)>0,'还没有药鼎。请先到长乐集购买药鼎。');must(G.alchemyUnlocked(s,recipe),`炼药熟练度或境界不足，暂未掌握${recipe.name}。`);must(G.alchemyCauldronReady(s,recipe),`这张丹方至少需要${recipe.minCauldronTier}阶药鼎。`);
+          const recipe=G.alchemyRecipe(payload.recipe);must(recipe,'丹方不存在。');must(G.alchemyHasFormula(s,recipe),`尚未获得丹方《${recipe.name}》。可在长乐集购买，探索也可能发现。`);must((s.alchemy?.cauldron||0)>0,'还没有药鼎。请先到长乐集购买药鼎。');must(G.alchemyQualified(s,recipe),`炼药熟练度或境界不足，暂时无法参悟${recipe.name}。`);must(G.alchemyCauldronReady(s,recipe),`这张丹方至少需要${recipe.minCauldronTier}阶药鼎。`);
           const materials=G.alchemyMaterials(recipe);effects(s,{mana:-recipe.mana},null,materials);begin(s,'alchemy',{recipe:recipe.id});G.log(s,`按${recipe.name}开炉。${G.alchemyMaterialText(recipe)} · 灵力 -${recipe.mana} 已投入；最终丹药阶数由药鼎与炼药师水平共同决定，中断不返还。`,'炼药');break;
         }
         case 'explore':must(['park','temple'].includes(s.position),'请先前往月渡公园或听雨观探索。');must(s.player.stamina>=12,'探索需要 12 点体力。');begin(s,'explore');G.log(s,'开始探索周围的街巷与灵息。','探索');break;
@@ -565,6 +571,11 @@
           if(owned.includes(item.level)){s.alchemy.cauldron=item.level;G.log(s,`在长乐集换用${item.name}（${item.tier}阶）。`,'炼药');break;}
           must(s.player.realm>=item.realm,`需要进入${G.REALMS[item.realm].name}后才能驾驭${item.name}。`);must(s.player.money>=item.cost,`购买${item.name}需要 ¥${item.cost}。`);
           s.player.money-=item.cost;owned.push(item.level);owned.sort((a,b)=>a-b);s.alchemy.cauldrons=owned;s.alchemy.cauldron=item.level;G.log(s,`在长乐集购入${item.name}（${item.tier}阶），现金 -¥${item.cost}。已设为当前药鼎。`,'炼药');break;
+        }
+        case 'formula': {
+          must(s.position==='market','请先前往长乐集寻购丹方。');
+          const candidates=G.formulaMarketCandidates(s),cost=G.formulaScrollCost(s);must(candidates.length,'当前境界能买到的丹方已经全部收录。');must(s.player.money>=cost,`购入一卷未收录丹方残卷需要 ¥${cost}。`);
+          s.player.money-=cost;const recipe=candidates[Math.floor(G.rand(s)*candidates.length)];s.alchemy.formulas.push(recipe.id);G.log(s,`在长乐集购得一卷残卷，辨认后确认是丹方《${recipe.name}》。现金 -¥${cost}，丹方已永久收录。`,'炼药');break;
         }
         case 'herb':
         case 'material': {

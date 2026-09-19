@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v8';
-  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v7';
-  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
+  G.STORAGE_KEY = 'night-courier:saves:v9';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v8';
+  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v7','night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -51,6 +51,7 @@
     if(kind==='alchemy'){
       const recipe=G.alchemyRecipe(p.recipe);if(!recipe)throw new Error('丹方无效。');params.recipe=recipe.id;duration=recipe.duration;
       if((s.alchemy?.cauldron||0)<=0)throw new Error('炼药行动缺少有效药鼎。');
+      if(!G.alchemyHasFormula(s,recipe))throw new Error('进行中的炼药缺少已获得丹方。');
     }
     if(kind==='upgrade'){
       if(!['speed','battery','durability'].includes(p.kind)||s.vehicle.levels[p.kind]>=5)throw new Error('升级行动无效。');params.kind=p.kind;
@@ -105,7 +106,7 @@
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3,4,5,6,7,8].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4,5,6,7,8,9].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
@@ -141,7 +142,13 @@
     const oldCauldron=num(ar.cauldron,version<=5&&raw.activity?.kind==='alchemy'?1:0,0,version<8?3:G.CAULDRONS.length-1),cauldron=version<8?(G.LEGACY_CAULDRON_MAP[oldCauldron]??0):oldCauldron;
     const ownedCauldrons=version<8?(cauldron?[cauldron]:[]):Array.isArray(ar.cauldrons)?[...new Set(ar.cauldrons.map(x=>num(x,0,0,G.CAULDRONS.length-1)).filter(Boolean))].sort((a,b)=>a-b):[];
     if(cauldron&&!ownedCauldrons.includes(cauldron))ownedCauldrons.push(cauldron);
-    s.alchemy={cauldron,cauldrons:ownedCauldrons.sort((a,b)=>a-b),xp:num(ar.xp,0,0,999999),brews:num(ar.brews,0,0,999999),successes:num(ar.successes,0,0,999999)};
+    const xp=num(ar.xp,0,0,999999);
+    const formulas=version<9
+      ? G.ALCHEMY_RECIPES.filter(r=>s.player.realm>=r.realm&&xp>=r.need).map(r=>r.id)
+      : Array.isArray(ar.formulas)?[...new Set(ar.formulas.filter(id=>G.alchemyRecipe(id)))]:[];
+    const activeFormula=raw.activity?.kind==='alchemy'&&G.alchemyRecipe(raw.activity?.params?.recipe)?.id;
+    if(activeFormula&&!formulas.includes(activeFormula))formulas.push(activeFormula);
+    s.alchemy={cauldron,cauldrons:ownedCauldrons.sort((a,b)=>a-b),formulas,xp,brews:num(ar.brews,0,0,999999),successes:num(ar.successes,0,0,999999)};
     if(s.alchemy.successes>s.alchemy.brews)s.alchemy.successes=s.alchemy.brews;
     for(const item of G.ITEMS.filter(i=>!i.unique))s.inventory[item.id]=num(raw.inventory?.[item.id],0,0,9999);
     for(const k of Object.keys(s.stats))s.stats[k]=num(raw.stats?.[k],0,0,k==='distance'?1e10:1e7,k!=='distance');
@@ -167,7 +174,7 @@
     s.activity=version>=5&&raw.activity?cleanActivity(raw.activity,s,version):null;
     if(s.pending&&s.activity)throw new Error('待选事件与进行中行动不能同时存在。');
     s.schemaVersion=G.VERSION;
-    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}：既有地图、连续时间与九重境界继续保留；旧三档药鼎映射到新的 24 鼎九阶体系，旧丹药按一阶保留；新增药材与丹药库存补 0。`,'存档');
+    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}：既有地图、连续时间、九重境界与炼药进度继续保留；旧版按境界/熟练度已可使用的丹方自动记为已获得，避免升级后丢失既有炼药能力。`,'存档');
     return s;
   };
   G.parseImport = text => {
