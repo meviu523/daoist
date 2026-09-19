@@ -145,6 +145,8 @@
   G.alchemyMaterials = recipe => recipe?.materials || (recipe?.herbs ? {herb:recipe.herbs} : {});
   G.alchemyMaterialText = recipe => Object.entries(G.alchemyMaterials(recipe)).map(([id,count])=>`${G.alchemyMaterial(id)?.name || G.ITEMS.find(i=>i.id===id)?.name || id} ×${count}`).join(' · ');
   G.alchemyHasFormula = (s,recipe) => !!recipe && Array.isArray(s.alchemy?.formulas) && s.alchemy.formulas.includes(recipe.id);
+  G.formulaMarketCandidates = s => G.ALCHEMY_RECIPES.filter(r=>r.realm<=s.player.realm&&!G.alchemyHasFormula(s,r));
+  G.formulaScrollCost = s => 45+s.player.realm*30;
   G.alchemyQualified = (s,recipe) => !!recipe && s.player.realm>=recipe.realm && (s.alchemy?.xp||0)>=recipe.need;
   G.alchemyUnlocked = (s,recipe) => G.alchemyHasFormula(s,recipe) && G.alchemyQualified(s,recipe);
   G.alchemyCauldronReady = (s,recipe) => !!recipe && (G.cauldron(s).tier||0)>=recipe.minCauldronTier;
@@ -571,8 +573,9 @@
           s.player.money-=item.cost;owned.push(item.level);owned.sort((a,b)=>a-b);s.alchemy.cauldrons=owned;s.alchemy.cauldron=item.level;G.log(s,`在长乐集购入${item.name}（${item.tier}阶），现金 -¥${item.cost}。已设为当前药鼎。`,'炼药');break;
         }
         case 'formula': {
-          const recipe=G.alchemyRecipe(payload.id);must(recipe,'丹方不存在。');must(s.position==='market','请先前往长乐集购买丹方。');must(!G.alchemyHasFormula(s,recipe),`已经获得丹方《${recipe.name}》。`);must(s.player.realm>=recipe.realm,`需要进入${G.REALMS[recipe.realm].name}后，摊主才肯出售这张丹方。`);must(s.player.money>=recipe.price,`购买丹方《${recipe.name}》需要 ¥${recipe.price}。`);
-          s.player.money-=recipe.price;s.alchemy.formulas.push(recipe.id);G.log(s,`在长乐集购得丹方《${recipe.name}》，现金 -¥${recipe.price}。丹方已永久收录。`,'炼药');break;
+          must(s.position==='market','请先前往长乐集寻购丹方。');
+          const candidates=G.formulaMarketCandidates(s),cost=G.formulaScrollCost(s);must(candidates.length,'当前境界能买到的丹方已经全部收录。');must(s.player.money>=cost,`购入一卷未收录丹方残卷需要 ¥${cost}。`);
+          s.player.money-=cost;const recipe=candidates[Math.floor(G.rand(s)*candidates.length)];s.alchemy.formulas.push(recipe.id);G.log(s,`在长乐集购得一卷残卷，辨认后确认是丹方《${recipe.name}》。现金 -¥${cost}，丹方已永久收录。`,'炼药');break;
         }
         case 'herb':
         case 'material': {
