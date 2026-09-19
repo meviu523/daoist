@@ -1,0 +1,38 @@
+name: Prepare progressive gameplay changes
+on:
+  push:
+    branches: [feature/progressive-gameplay-unlocks]
+    paths: [.github/workflows/prepare-unlocks.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'meviu523/daoist' && github.ref == 'refs/heads/feature/progressive-gameplay-unlocks'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+      - name: Apply per-file hash-verified edits
+        run: |
+          git merge-base --is-ancestor 3530d47b36b060d821ad5955164e9dc37b4cc09d HEAD
+          python3 .github/unlock-core-edits.py
+          python3 .github/unlock-tests-edits.py
+          python3 .github/unlock-docs-edits.py
+      - name: Validate and commit feature sources
+        shell: bash
+        run: |
+          npm run check
+          npm test
+          npm run build
+          git add -- package.json public/js/data.js public/js/engine.js public/js/app.js public/js/storage.js public/js/progression.js public/styles.css tests/browser-smoke.py tests/engine.test.mjs tests/realtime.test.mjs tests/formula-acquisition.test.mjs tests/gameplay-unlocks.test.mjs README.md PROJECT_MEMORY.md docs/ARCHITECTURE.md docs/TEST_REPORT.md
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: progressively unlock gameplay and navigation'
+          git push origin HEAD:refs/heads/feature/progressive-gameplay-unlocks
