@@ -261,6 +261,25 @@ with sync_playwright() as p:
     record('桌面流程无 JavaScript 运行时异常')
     ctx.close()
 
+    # A world revision (such as the 15-minute order refresh) must not replace
+    # the native speed select while the player is interacting with it.
+    ctx, refresh, refresh_errors = setup(browser, 1200, 900)
+    new_game(refresh, '时控')
+    refresh.select_option('#time-speed', '10')
+    refresh.locator('#time-speed').focus()
+    refresh.evaluate("()=>{window.__speedSelect=document.querySelector('#time-speed');window.__timeControls=document.querySelector('.time-controls');}")
+    timing = refresh.evaluate("()=>({now:window.__live.minutes,next:window.__live.orderRefreshAt})")
+    assert timing['next'] > timing['now']
+    pump(refresh, int(((timing['next']-timing['now'])/10+.2)*1000))
+    assert current(refresh)['minutes'] >= timing['next']
+    assert refresh.evaluate("()=>window.__speedSelect===document.querySelector('#time-speed')")
+    assert refresh.evaluate("()=>window.__timeControls===document.querySelector('.time-controls')")
+    assert refresh.evaluate("()=>document.activeElement===window.__speedSelect")
+    assert refresh.locator('#time-speed').input_value() == '10'
+    assert not refresh_errors, refresh_errors
+    record('世界时间刷新不重建倍率选择框，焦点与当前倍率保持')
+    ctx.close()
+
     ctx, craft, cerrors = setup(browser, 1200, 900)
     new_game(craft, '药童')
     craft.click('[data-ui="home"]')

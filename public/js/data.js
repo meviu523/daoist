@@ -3,7 +3,7 @@
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
   G.VERSION = 7;
-  G.APP_VERSION = '1.3.1';
+  G.APP_VERSION = '1.3.4';
   G.TITLE = '外卖修仙录';
   // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050, 2290, 2530];
