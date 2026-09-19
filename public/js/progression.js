@@ -39,7 +39,7 @@
     fragment:1, charm:1, foundation:1, breathing:1, lightstep:1,
     jade:2, robe:2
   };
-  for (const item of G.ITEMS) item.unlockRealm = unlocks[item.id] ?? 0;
+  for (const item of G.ITEMS) item.unlockRealm = unlocks[item.id] ?? item.unlockRealm ?? 0;
   G.itemUnlocked = (s, item) => s.player.realm >= (item.unlockRealm || 0);
 
   // 都市生活继续是订单主体，但修行越深，越容易收到“只有你看得懂”的特殊配送。

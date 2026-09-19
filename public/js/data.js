@@ -2,8 +2,8 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 7;
-  G.APP_VERSION = '1.3.4';
+  G.VERSION = 8;
+  G.APP_VERSION = '1.4.0';
   G.TITLE = '外卖修仙录';
   // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050, 2290, 2530];
@@ -175,35 +175,97 @@
         ['下一张拍什么','天快亮时，苏砚把相机递给你。「总拍城市，我也想留一张自己的照片。」',c('替她拍一张认真看镜头的照片','她第一次没有躲在取景器后面。',{affinity:9,trust:8},{path:'friend'}),c('说想和她一起出现在照片里','定时快门亮起时，她悄悄靠近了一点。',{affinity:12,trust:7},{path:'romance',minTrust:12}),c('拍下河面和刚亮的天','你们约好以后每年都来拍同一个清晨。',{affinity:8,trust:8,karma:2},{path:'friend'})]
       ] }
   ];
+  const ALCHEMY_REALM_BY_TIER = [0,0,0,1,1,2,3,3,4,5];
+  const materialNames = [
+    '青灵草','凝露叶','云纹苔','清心藤','山泉藻','白芷灵根','紫苏芽','玉竹芯',
+    '赤阳花','火绒芝','丹霞果','朱砂蕊','焰尾草','赤练藤','暖玉参',
+    '炎心兰','月华芝','寒潭莲','霜纹叶','雪骨花','冰髓草','月桂枝',
+    '银星苔','夜露果','地脉参','黄精根','山灵薯','厚土芝','石乳菌',
+    '龙须根','岩心藤','土灵果','风行草','青羽叶','轻尘花','浮云蕊',
+    '鹤影藤','翼灵果','风铃子','空蝉蜕','雷纹木','紫电花','惊雷子',
+    '电光苔','霆心果','云雷藤','磁极砂','雷髓枝','星砂花','曜石蕊',
+    '星辉草','天河藻','辰光果','星落藤','玉衡叶','玄曜芝','龙涎果',
+    '凤血兰','麒麟参','玄龟苔','白泽叶','朱雀羽苔','青龙须','九转灵髓'
+  ];
+  G.ALCHEMY_MATERIALS = materialNames.map((name,index)=>{
+    const tier=index<8?1:2+Math.floor((index-8)/7);
+    return {id:index===0?'herb':`herb-${index+1}`,name,tier,realm:ALCHEMY_REALM_BY_TIER[tier],price:10+tier*11+(index%7)*3,cost:Math.min(12,1+tier),desc:`${tier}阶药材。药性会参与不同丹方的配伍与火候判定。`,glyph:name[0]};
+  });
+  G.PILL_TYPES = [
+    {id:'heal',name:'回春丹',glyph:'春',shopCost:4,desc:'补益气血。',effect:t=>({health:30+t*10})},
+    {id:'stamina',name:'清心散',glyph:'清',shopCost:4,desc:'调息解乏。',effect:t=>({stamina:25+t*10})},
+    {id:'qi',name:'凝气丹',glyph:'凝',shopCost:5,desc:'凝聚修为。',effect:t=>({qi:25+t*10})},
+    {id:'foundation',name:'破境丹',glyph:'境',shopCost:16,desc:'突破时服用，提高成功率。',breakBonus:t=>13+t*2},
+    {id:'spiritpill',name:'回灵丹',glyph:'灵',desc:'恢复灵力。',effect:t=>({mana:35+t*20})},
+    {id:'bodypill',name:'锻体丹',glyph:'体',desc:'同时补益气血与体力。',effect:t=>({health:15+t*10,stamina:15+t*10})},
+    {id:'greatqi',name:'聚元丹',glyph:'元',desc:'大幅增长修为。',effect:t=>({qi:45+t*25})},
+    {id:'marrowpill',name:'玉髓丹',glyph:'髓',desc:'温养筋骨，恢复气血与体力。',effect:t=>({health:30+t*15,stamina:20+t*12})},
+    {id:'bloodpill',name:'血元丹',glyph:'血',desc:'侧重恢复气血。',effect:t=>({health:45+t*18})},
+    {id:'vitalpill',name:'养元丹',glyph:'养',desc:'侧重恢复体力。',effect:t=>({stamina:40+t*16})},
+    {id:'harmonypill',name:'三元丹',glyph:'三',desc:'同时恢复气血、体力与灵力。',effect:t=>({health:18+t*8,stamina:18+t*8,mana:18+t*8})},
+    {id:'spiritqi',name:'灵元丹',glyph:'玄',desc:'兼顾灵力与修为。',effect:t=>({mana:20+t*10,qi:20+t*14})}
+  ];
+  G.PILL_ITEM_ID = (typeId,tier)=>tier===1?typeId:`${typeId}-${tier}`;
+  G.PILL_ITEMS = G.PILL_TYPES.flatMap(type=>Array.from({length:9},(_,i)=>{
+    const tier=i+1,effect=type.effect?.(tier);
+    return {id:G.PILL_ITEM_ID(type.id,tier),name:`${tier}阶${type.name}`,type:'pill',pillType:type.id,tier,cost:tier===1&&type.shopCost?type.shopCost:0,shop:tier===1&&!!type.shopCost,desc:`${type.desc} 当前为${tier}阶成品。`,effect,glyph:type.glyph};
+  }));
   G.ITEMS = [
-    {id:'qi',name:'凝气丹',type:'pill',cost:5,desc:'服用后修为 +35。',effect:{qi:35},glyph:'丹'},
-    {id:'heal',name:'回春丹',type:'pill',cost:4,desc:'气血恢复 40。',effect:{health:40},glyph:'药'},
-    {id:'stamina',name:'清心散',type:'pill',cost:4,desc:'体力恢复 35。',effect:{stamina:35},glyph:'散'},
+    ...G.PILL_ITEMS,
     {id:'mana',name:'灵石',type:'pill',cost:3,desc:'灵力恢复 30。',effect:{mana:30},glyph:'石'},
-    {id:'herb',name:'青灵草',type:'material',cost:2,desc:'炼药材料，也可用来帮助朋友。',glyph:'草'},
+    ...G.ALCHEMY_MATERIALS.map(m=>({id:m.id,name:m.name,type:'material',cost:m.cost,shop:false,unlockRealm:m.realm,desc:m.desc,glyph:m.glyph})),
     {id:'fragment',name:'阵心碎玉',type:'material',cost:8,desc:'收集三枚，才有机会重新点亮护城阵。',glyph:'玉'},
     {id:'charm',name:'护身符',type:'material',cost:8,desc:'突破失败时自动消耗，免除气血损失。',glyph:'符'},
-    {id:'foundation',name:'破境丹',type:'material',cost:16,desc:'突破时可选择消耗，成功率 +15%。',glyph:'境'},
     {id:'breathing',name:'吐纳真诀',type:'technique',cost:18,desc:'永久学会：修炼所得修为提高 30%。',glyph:'诀',unique:true},
     {id:'lightstep',name:'轻身诀',type:'technique',cost:20,desc:'永久学会：步行速度提高 30%。',glyph:'步',unique:true},
     {id:'jade',name:'纳灵玉佩',type:'equipment',cost:25,desc:'自动装备，灵力上限 +30。',glyph:'佩',unique:true},
     {id:'robe',name:'青云法衣',type:'equipment',cost:24,desc:'自动装备，气血上限 +25。',glyph:'衣',unique:true}
   ];
+  const cauldronNames = [
+    ['青铜药鼎',1],['青石温炉',1],['黑陶药釜',1],
+    ['赤铜温灵鼎',2],['白瓷凝露鼎',2],['灵木回风鼎',2],
+    ['玄铁聚火鼎',3],['寒玉清心鼎',3],['云纹锁灵鼎',3],
+    ['紫砂养神鼎',4],['赤金焰纹鼎',4],['青玉回元鼎',4],
+    ['地脉玄炉',5],['风雷药鼎',5],['月桂灵鼎',5],
+    ['星砂炼真鼎',6],['雷纹镇火鼎',6],['碧落归元鼎',6],
+    ['九霞丹鼎',7],['玄黄地炉',7],
+    ['天星乾坤鼎',8],['龙纹离火鼎',8],
+    ['太虚九转鼎',9],['万象混元鼎',9]
+  ];
   G.CAULDRONS = [
-    { level:0, name:'无药鼎', cost:0, success:0, extra:0, realm:0, desc:'需要先在长乐集购买药鼎，才能开始炼药。' },
-    { level:1, name:'青铜药鼎', cost:160, success:0, extra:.04, realm:0, desc:'入门药鼎。能稳定聚拢药性，开启炼药师道路。' },
-    { level:2, name:'赤铜温灵鼎', cost:320, success:.06, extra:.10, realm:1, desc:'炉温更稳，成丹率提高，并更容易一炉得双药。' },
-    { level:3, name:'玄铁聚火鼎', cost:620, success:.12, extra:.18, realm:2, desc:'聚火锁灵，显著提高高阶丹药的稳定性与额外产出。' }
+    {level:0,tier:0,name:'无药鼎',cost:0,success:0,extra:0,quality:0,realm:0,desc:'需要先在长乐集购买药鼎，才能开始炼药。'},
+    ...cauldronNames.map(([name,tier],index)=>{
+      const variant=index%3;
+      return {level:index+1,tier,name,cost:100+index*75+tier*60,success:.015*(tier-1)+variant*.012,extra:.025*tier+(2-variant)*.012,quality:.018*tier+variant*.01,realm:ALCHEMY_REALM_BY_TIER[tier],desc:`${tier}阶药鼎。成丹稳定、成色与额外产出各有侧重。`};
+    })
   ];
+  G.LEGACY_CAULDRON_MAP = Object.freeze({0:0,1:1,2:4,3:7});
   G.ALCHEMY_RANKS = [
-    { name:'药童', need:0 }, { name:'识药', need:4 }, { name:'掌火', need:10 }, { name:'炼药师', need:20 }, { name:'丹师', need:40 }
+    {name:'药童',need:0,tier:1},{name:'识药',need:4,tier:2},{name:'掌火',need:10,tier:3},
+    {name:'炼药师',need:20,tier:4},{name:'丹师',need:40,tier:5},{name:'丹匠',need:70,tier:6},
+    {name:'丹宗',need:110,tier:7},{name:'丹尊',need:170,tier:8},{name:'丹道宗师',need:250,tier:9}
   ];
-  G.ALCHEMY_RECIPES = [
-    { id:'heal', name:'回春丹', herbs:1, mana:8, duration:20, base:.72, need:0, realm:0, desc:'恢复气血的基础丹药。' },
-    { id:'stamina', name:'清心散', herbs:1, mana:7, duration:18, base:.75, need:2, realm:0, desc:'调息解乏，恢复体力。' },
-    { id:'qi', name:'凝气丹', herbs:2, mana:10, duration:25, base:.68, need:5, realm:0, desc:'凝聚灵气，服用后增长修为。' },
-    { id:'foundation', name:'破境丹', herbs:4, mana:20, duration:40, base:.58, need:16, realm:1, desc:'熟练炼药师才能尝试的破境丹。' }
-  ];
+  const recipeRoutes = ['草木方','清露方','赤阳方','月华方','地脉方','风行方','雷纹方','星辉方','九转方'];
+  const recipeRealm = [0,0,1,1,2,2,3,4,5];
+  G.ALCHEMY_RECIPES = G.PILL_TYPES.flatMap((pill,pillIndex)=>recipeRoutes.map((route,routeIndex)=>{
+    const complexity=routeIndex+1,maxMaterialTier=Math.min(9,complexity+1);
+    const pool=G.ALCHEMY_MATERIALS.filter(m=>m.tier<=maxMaterialTier);
+    const materialCount=Math.min(5,1+Math.ceil(complexity/2)),materials={};
+    for(let j=0;j<materialCount;j++){
+      const material=pool[(pillIndex*5+routeIndex*7+j*11)%pool.length];
+      materials[material.id]=(materials[material.id]||0)+1+(complexity>=7&&j===0?1:0);
+    }
+    return {
+      id:routeIndex===0?pill.id:`${pill.id}-formula-${routeIndex+1}`,
+      name:`${pill.name}·${route}`,product:pill.id,route,complexity,
+      materials,mana:6+complexity*3+Math.floor(pillIndex/3)*2,duration:15+complexity*3+(pillIndex%4)*2,
+      base:Math.max(.42,.82-complexity*.035-(pillIndex%3)*.015),
+      need:(complexity-1)*25+pillIndex*4,
+      realm:Math.max(recipeRealm[routeIndex],Math.floor(pillIndex/4)-1,0),
+      minCauldronTier:complexity,
+      desc:`${route}，用于炼制${pill.name}。丹方只规定配伍与火候，最终丹药阶数由药鼎与炼药师水平决定。`
+    };
+  }));
   G.QUESTS = [
     {id:'q1',title:'第一份人间烟火',desc:'完成 1 单配送',delivery:1,realm:0,reward:{coins:5,qi:15},story:'系统不是凭空赐予力量。它把你送达的每一份善意，折成可以带走的光。'},
     {id:'q2',title:'万家灯火',desc:'完成 5 单配送',delivery:5,realm:0,reward:{coins:10,qi:30},story:'旧城深处的阵纹正在熄灭。你的订单，把原本断开的街巷重新连在一起。'},

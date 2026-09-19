@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v7';
-  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v6';
-  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
+  G.STORAGE_KEY = 'night-courier:saves:v8';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v7';
+  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -105,7 +105,7 @@
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3,4,5,6,7].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4,5,6,7,8].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
@@ -138,7 +138,10 @@
     for(const k of ['health','stamina','mana'])s.player[k]=num(raw.player[k],cap[k],0,cap[k],false);
     s.vehicle.battery=num(v.battery,cap.battery,0,cap.battery,false);s.vehicle.durability=num(v.durability,cap.durability,0,cap.durability,false);
     const ar=obj(raw.alchemy)?raw.alchemy:{};
-    s.alchemy={cauldron:num(ar.cauldron,version<=5&&raw.activity?.kind==='alchemy'?1:0,0,G.CAULDRONS.length-1),xp:num(ar.xp,0,0,999999),brews:num(ar.brews,0,0,999999),successes:num(ar.successes,0,0,999999)};
+    const oldCauldron=num(ar.cauldron,version<=5&&raw.activity?.kind==='alchemy'?1:0,0,version<8?3:G.CAULDRONS.length-1),cauldron=version<8?(G.LEGACY_CAULDRON_MAP[oldCauldron]??0):oldCauldron;
+    const ownedCauldrons=version<8?(cauldron?[cauldron]:[]):Array.isArray(ar.cauldrons)?[...new Set(ar.cauldrons.map(x=>num(x,0,0,G.CAULDRONS.length-1)).filter(Boolean))].sort((a,b)=>a-b):[];
+    if(cauldron&&!ownedCauldrons.includes(cauldron))ownedCauldrons.push(cauldron);
+    s.alchemy={cauldron,cauldrons:ownedCauldrons.sort((a,b)=>a-b),xp:num(ar.xp,0,0,999999),brews:num(ar.brews,0,0,999999),successes:num(ar.successes,0,0,999999)};
     if(s.alchemy.successes>s.alchemy.brews)s.alchemy.successes=s.alchemy.brews;
     for(const item of G.ITEMS.filter(i=>!i.unique))s.inventory[item.id]=num(raw.inventory?.[item.id],0,0,9999);
     for(const k of Object.keys(s.stats))s.stats[k]=num(raw.stats?.[k],0,0,k==='distance'?1e10:1e7,k!=='distance');
@@ -164,7 +167,7 @@
     s.activity=version>=5&&raw.activity?cleanActivity(raw.activity,s,version):null;
     if(s.pending&&s.activity)throw new Error('待选事件与进行中行动不能同时存在。');
     s.schemaVersion=G.VERSION;
-    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}：99 地点与 10 分钟充电规则继续保留；旧大境界从对应一重继续，进行中的旧版大境突破保持原目标；炼药途中状态会补基础药鼎以继续完成。`,'存档');
+    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}：既有地图、连续时间与九重境界继续保留；旧三档药鼎映射到新的 24 鼎九阶体系，旧丹药按一阶保留；新增药材与丹药库存补 0。`,'存档');
     return s;
   };
   G.parseImport = text => {
@@ -187,7 +190,7 @@
         if(storage.getItem(G.STORAGE_KEY)===null&&legacy){
           cache=readKey(legacy);
           const migrated=persist(cache);
-          if(migrated.ok)warning='已将旧存档升级到 v5 连续时间版，角色、住处与既有进度保留。';
+          if(migrated.ok)warning=`已将旧存档升级到 v${G.VERSION}，角色、住处、药鼎与既有进度保留。`;
         }
       }
       catch(e){try{const backup=storage.getItem(G.BACKUP_KEY);if(!backup)throw new Error('没有备份');cache=readKey(G.BACKUP_KEY);warning='主存档损坏，已读取上一次自动备份。请先导出保存。';}catch{warning='本地存档无法读取；没有覆盖原始数据。可以导入外部备份。';}}
