@@ -4,6 +4,8 @@
 
 新增 Chromium 回归覆盖世界 `revision` 对顶部时间控件的影响：创建存档后设为 10 倍、聚焦 `#time-speed`，保存该 select 与 `.time-controls` 的 DOM 引用，再推进跨过下一次 15 分钟订单刷新边界。刷新后要求两个节点引用均未变化、`document.activeElement` 仍为原选择框、倍率值仍为 10。该检查直接防止完整状态刷新通过重写 header 关闭原生选择框。
 
+PR #12 首轮完整 CI 已通过 `npm run check`、`npm test`（183/183）、`npm run build` 与 Chromium 30/30 组检查。
+
 以下保留 1.3.3 及更早测试记录作为历史基线。
 
 # 1.3.3 配送点进度环对齐修复测试记录
