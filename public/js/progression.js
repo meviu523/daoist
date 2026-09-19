@@ -147,6 +147,8 @@
     G.sanitizeSave = raw => {
       const s = originalSanitize(raw);
       for (const key of G.STORY_FLAG_KEYS) s.flags[key] = raw?.flags?.[key] === true;
+      // 已完成的旧剧情和羁绊补领一次；仍在待选/执行中的主线不算完成。
+      G.syncFormulaRewards(s);
       return s;
     };
   }

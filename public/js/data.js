@@ -3,7 +3,7 @@
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
   G.VERSION = 9;
-  G.APP_VERSION = '1.4.1';
+  G.APP_VERSION = '1.4.2';
   G.TITLE = '外卖修仙录';
   // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050, 2290, 2530];
@@ -245,6 +245,23 @@
     {name:'炼药师',need:20,tier:4},{name:'丹师',need:40,tier:5},{name:'丹匠',need:70,tier:6},
     {name:'丹宗',need:110,tier:7},{name:'丹尊',need:170,tier:8},{name:'丹道宗师',need:250,tier:9}
   ];
+  G.FORMULA_STORY_SOURCES = [
+    {quest:'q1',label:'第一份人间烟火'},
+    {event:'story-street-vein',flag:'storyStreetVein',label:'地图上多出来的一条线'},
+    {event:'story-second-city',flag:'storySecondCity',label:'城市的背面'},
+    {event:'story-lantern-network',flag:'storyLanternNetwork',label:'每个人都是一个阵点'},
+    {event:'story-system-doubt',flag:'storySystemDoubt',label:'系统第一次拒绝回答'},
+    {event:'story-system-truth',flag:'storySystemTruth',label:'万家灯火，不属于任何人'}
+  ];
+  // 每位故人各有两类药的三种配伍；友情与情感路线共用传方条件。
+  G.FORMULA_NPC_PRODUCTS = {
+    lin:['heal','bloodpill'],chen:['bodypill','marrowpill'],
+    shen:['qi','spiritqi'],lu:['foundation','greatqi'],
+    zhou:['stamina','vitalpill'],su:['spiritpill','harmonypill']
+  };
+  G.FORMULA_BOND_MILESTONES = [
+    {stage:1,trust:3},{stage:2,trust:9},{stage:4,trust:20}
+  ];
   const recipeRoutes = ['草木方','清露方','赤阳方','月华方','地脉方','风行方','雷纹方','星辉方','九转方'];
   const recipeRealm = [0,0,1,1,2,2,3,4,5];
   G.ALCHEMY_RECIPES = G.PILL_TYPES.flatMap((pill,pillIndex)=>recipeRoutes.map((route,routeIndex)=>{
@@ -255,7 +272,12 @@
       const material=pool[(pillIndex*5+routeIndex*7+j*11)%pool.length];
       materials[material.id]=(materials[material.id]||0)+1+(complexity>=7&&j===0?1:0);
     }
+    const channel=routeIndex%3,step=Math.floor(routeIndex/3);
+    const acquisition=channel===0?{type:'shop'}:channel===1
+      ? {type:'story',...G.FORMULA_STORY_SOURCES[step*2+Math.floor(pillIndex/6)]}
+      : {type:'bond',npc:Object.keys(G.FORMULA_NPC_PRODUCTS).find(id=>G.FORMULA_NPC_PRODUCTS[id].includes(pill.id)),...G.FORMULA_BOND_MILESTONES[step]};
     return {
+      acquisition,
       id:routeIndex===0?pill.id:`${pill.id}-formula-${routeIndex+1}`,
       name:`${pill.name}·${route}`,product:pill.id,route,complexity,
       materials,mana:6+complexity*3+Math.floor(pillIndex/3)*2,duration:15+complexity*3+(pillIndex%4)*2,
