@@ -542,7 +542,7 @@
         case 'heal':must(s.position==='clinic','请先前往回春医馆。');must(s.player.health<G.limits(s).health,'气血已满。');effects(s,{money:-25});begin(s,'heal');G.log(s,'开始治疗，现金 -¥25。','生活');break;
         case 'meal':must(s.position==='market','请先前往长乐集。');effects(s,{money:-12});begin(s,'meal');G.log(s,'开始用餐，现金 -¥12。','生活');break;
         case 'buy': {
-          const item=G.ITEMS.find(i=>i.id===payload.id);must(item,'兑换物不存在。');must(!item.unique||(!s.learned.includes(item.id)&&!s.equipment.includes(item.id)),'已经拥有，不能重复兑换。');must(s.player.coins>=item.cost,'外卖币不足，请先完成配送。');s.player.coins-=item.cost;
+          const item=G.ITEMS.find(i=>i.id===payload.id);must(item&&item.shop!==false,'这件物品不能通过系统直接兑换。');must(!item.unique||(!s.learned.includes(item.id)&&!s.equipment.includes(item.id)),'已经拥有，不能重复兑换。');must(s.player.coins>=item.cost,'外卖币不足，请先完成配送。');s.player.coins-=item.cost;
           if(item.type==='technique')s.learned.push(item.id);else if(item.type==='equipment')s.equipment.push(item.id);else s.inventory[item.id]=(s.inventory[item.id]||0)+1;
           G.log(s,`系统兑换：${item.name}，外卖币 -${item.cost}。即时到账，不消耗游戏时间。`,'系统');break;
         }
