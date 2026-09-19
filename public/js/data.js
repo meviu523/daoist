@@ -2,8 +2,8 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 8;
-  G.APP_VERSION = '1.4.0';
+  G.VERSION = 9;
+  G.APP_VERSION = '1.4.1';
   G.TITLE = '外卖修仙录';
   // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050, 2290, 2530];
@@ -263,6 +263,7 @@
       need:(complexity-1)*25+pillIndex*4,
       realm:Math.max(recipeRealm[routeIndex],Math.floor(pillIndex/4)-1,0),
       minCauldronTier:complexity,
+      price:28+complexity*24+pillIndex*7,
       desc:`${route}，用于炼制${pill.name}。丹方只规定配伍与火候，最终丹药阶数由药鼎与炼药师水平决定。`
     };
   }));
