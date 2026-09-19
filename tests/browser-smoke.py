@@ -283,9 +283,9 @@ with sync_playwright() as p:
     ctx, craft, cerrors = setup(browser, 1200, 900)
     new_game(craft, '药童')
     craft.click('[data-ui="home"]')
-    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0],r=NightCourier.alchemyRecipe('heal');s.player.money=1000;s.player.mana=60;for(const id of Object.keys(NightCourier.alchemyMaterials(r)))s.inventory[id]=10;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
+    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.player.money=10000;s.alchemy.xp=999;for(const m of NightCourier.ALCHEMY_MATERIALS)s.inventory[m.id]=10;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
     craft.locator('[data-ui="load"]').first.click()
-    assert current(craft)['player']['money'] == 1000
+    assert current(craft)['player']['money'] == 10000
     craft.locator('[data-place="market"]').focus();craft.keyboard.press('Enter')
     craft.click('[data-act="travel"][data-target="market"]')
     toggle(craft);craft.select_option('#time-speed', '10')
@@ -293,23 +293,28 @@ with sync_playwright() as p:
     pump(craft, travel_ms)
     assert current(craft)['position'] == 'market'
     craft.locator('.game-nav [data-panel="cultivation"]').click()
-    assert '尚未购鼎' in craft.locator('#panel').inner_text()
+    panel_text = craft.locator('#panel').inner_text()
+    assert '尚未获得任何丹方' in panel_text
+    assert craft.locator('[data-act="alchemy"]').count() == 0
+    hidden_name = craft.evaluate("NightCourier.ALCHEMY_RECIPES[0].name")
+    assert hidden_name not in panel_text
     craft.click('[data-act="cauldron"]')
     assert stored(craft)['alchemy']['cauldron'] == 1
-    assert stored(craft)['player']['money'] == 840
-    assert craft.locator('[data-act="alchemy"][data-recipe="heal"]').is_enabled()
-    recipe_cost = craft.evaluate("NightCourier.alchemyMaterials(NightCourier.alchemyRecipe('heal'))")
-    before_materials = {k: current(craft)['inventory'].get(k, 0) for k in recipe_cost}
-    craft.click('[data-act="alchemy"][data-recipe="heal"]')
-    craft.select_option('#time-speed', '10');pump(craft, 2200)
-    brewed = current(craft)
-    assert brewed['alchemy']['brews'] == 1 and brewed['alchemy']['xp'] >= 1
-    for material_id, amount in recipe_cost.items():
-        assert brewed['inventory'][material_id] == before_materials[material_id] - amount
+    before_formula_money = current(craft)['player']['money']
+    craft.click('[data-act="formula"]')
+    acquired = current(craft)['alchemy']['formulas']
+    assert len(acquired) == 1
+    assert current(craft)['player']['money'] < before_formula_money
+    acquired_name = craft.evaluate("(id)=>NightCourier.alchemyRecipe(id).name", acquired[0])
+    remaining_name = craft.evaluate("()=>NightCourier.ALCHEMY_RECIPES.find(r=>!window.__live.alchemy.formulas.includes(r.id)).name")
+    panel_text = craft.locator('#panel').inner_text()
+    assert acquired_name in panel_text
+    assert remaining_name not in panel_text
+    assert craft.locator('[data-act="alchemy"]').count() == 1
     assert craft.evaluate("NightCourier.ALCHEMY_MATERIALS.length") == 64
     assert craft.evaluate("NightCourier.ALCHEMY_RECIPES.length") == 108
     assert craft.evaluate("NightCourier.CAULDRONS.length - 1") == 24
-    record('炼药师可购买九阶药鼎、按丹方扣除多种药材，并保留64药材/108丹方/24药鼎数据')
+    record('未获得丹方完全隐藏；长乐集购入未知残卷后才显示具体丹方')
     assert not cerrors, cerrors
     ctx.close()
 
