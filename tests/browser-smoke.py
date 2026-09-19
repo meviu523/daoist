@@ -112,9 +112,10 @@ with sync_playwright() as p:
     page.locator('.game-nav [data-panel="cultivation"]').click()
     assert '凡人一重' in page.locator('#panel').inner_text()
     assert '无药鼎' in page.locator('#panel').inner_text()
-    assert page.locator('[data-act="alchemy"]').first.is_disabled()
+    assert '尚未获得任何丹方' in page.locator('#panel').inner_text()
+    assert page.locator('[data-act="alchemy"]').count() == 0
     page.click('[data-ui="close"]')
-    record('修行面板显示九重小境界，未购鼎时禁止开炉')
+    record('修行面板显示九重小境界，新档未获得丹方时不显示开炉入口')
     page.screenshot(path=str(OUT/'game-desktop.png'))
     assert page.evaluate('NightCourier.PLACES.length') == 110
     assert page.locator('.map-point').count() <= 15
