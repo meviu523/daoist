@@ -41,7 +41,7 @@
       player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, realmLevel: 1, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
       alchemy: {cauldron:0,xp:0,brews:0,successes:0},
-      inventory: {qi:1,heal:1,stamina:1,spiritpill:0,bodypill:0,greatqi:0,marrowpill:0,mana:0,herb:0,dewleaf:0,sunblossom:0,mooncap:0,earthroot:0,fragment:0,charm:0,foundation:0}, learned: [], equipment: [],
+      inventory: {...Object.fromEntries(G.ITEMS.filter(i=>!i.unique).map(i=>[i.id,0])),qi:1,heal:1,stamina:1}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
       daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], ending: null,
@@ -139,13 +139,25 @@
     for(let i=1;i<G.ALCHEMY_RANKS.length;i++)if(xp>=G.ALCHEMY_RANKS[i].need)rank=i;
     return rank;
   };
+  G.alchemistTier = s => G.ALCHEMY_RANKS[G.alchemyRank(s)]?.tier || 1;
   G.alchemyRecipe = id => G.ALCHEMY_RECIPES.find(r=>r.id===id);
   G.alchemyMaterial = id => G.ALCHEMY_MATERIALS.find(m=>m.id===id);
   G.alchemyMaterials = recipe => recipe?.materials || (recipe?.herbs ? {herb:recipe.herbs} : {});
   G.alchemyMaterialText = recipe => Object.entries(G.alchemyMaterials(recipe)).map(([id,count])=>`${G.alchemyMaterial(id)?.name || G.ITEMS.find(i=>i.id===id)?.name || id} ×${count}`).join(' · ');
   G.alchemyUnlocked = (s,recipe) => !!recipe && s.player.realm>=recipe.realm && (s.alchemy?.xp||0)>=recipe.need;
-  G.alchemyChance = (s,recipe) => clamp(recipe.base+s.player.insight*.008+G.cauldron(s).success+G.alchemyRank(s)*.02,.25,.98);
-  G.alchemyExtraChance = s => clamp(G.cauldron(s).extra+G.alchemyRank(s)*.025,0,.55);
+  G.alchemyCauldronReady = (s,recipe) => !!recipe && (G.cauldron(s).tier||0)>=recipe.minCauldronTier;
+  G.alchemyChance = (s,recipe) => clamp(recipe.base+s.player.insight*.007+G.cauldron(s).success+(G.alchemistTier(s)-1)*.015,.20,.98);
+  G.alchemyExtraChance = s => clamp(G.cauldron(s).extra+(G.alchemistTier(s)-1)*.02,0,.65);
+  G.alchemyPillTier = (s,roll=0) => {
+    const cap=Math.max(1,Math.min(G.cauldron(s).tier||1,G.alchemistTier(s))),quality=roll+s.player.insight*.004+(G.cauldron(s).quality||0);
+    return quality>=.78?cap:quality>=.40?Math.max(1,cap-1):Math.max(1,cap-2);
+  };
+  G.pillItemId = (typeId,tier) => G.PILL_ITEM_ID(typeId,clamp(Math.floor(tier)||1,1,9));
+  G.pillType = id => G.PILL_TYPES.find(p=>p.id===id);
+  G.pillCount = (s,typeId) => Array.from({length:9},(_,i)=>s.inventory[G.pillItemId(typeId,i+1)]||0).reduce((a,b)=>a+b,0);
+  G.highestPillTier = (s,typeId) => {for(let tier=9;tier>=1;tier--)if((s.inventory[G.pillItemId(typeId,tier)]||0)>0)return tier;return 0;};
+  G.consumeHighestPill = (s,typeId) => {const tier=G.highestPillTier(s,typeId);if(!tier)return 0;s.inventory[G.pillItemId(typeId,tier)]--;return tier;};
+  G.breakthroughPillBonus = tier => tier?G.pillType('foundation').breakBonus(clamp(Number(tier)||1,1,9)):0;
   G.effectNames = {money:'现金',coins:'外卖币',health:'气血',stamina:'体力',mana:'灵力',qi:'修为',insight:'悟性',constitution:'根骨',agility:'身法',luck:'机缘',karma:'善缘',rep:'口碑',fragments:'碎玉',herb:'青灵草',affinity:'好感',trust:'信任'};
   G.effectText = effects => Object.entries(effects || {}).filter(([,v])=>v).map(([k,v])=>`${G.effectNames[k]||k} ${v > 0 ? '+' : ''}${v}`).join(' · ') || '不改变属性';
   G.effectBlock = (s, effects, itemCost = {}) => {
@@ -214,7 +226,7 @@
     if(ticket.npc){const bond=s.bonds[ticket.npc];const npc=G.NPCS.find(n=>n.id===ticket.npc);if(!bond.met){bond.met=true;if(npc)G.log(s,`这一单让你第一次正式结识${npc.name}。对方已出现在「羁绊」中。`,'相逢');}bond.affinity=clamp(bond.affinity+3,0,100);}
     G.log(s, `送达「${ticket.title}」至${G.place(ticket.target).name}。现金 +¥${reward}，外卖币 +${coins}。`, '配送');
   }
-  G.breakChance = (s, usePill=false) => clamp(53+s.player.insight*2+Math.max(0,s.player.karma)*.12+(G.isNight(s)?10:0)+(usePill?15:0)-s.player.realm*3-(G.realmLevel(s)-1)*1.25,35,95);
+  G.breakChance = (s, pillTier=0) => clamp(53+s.player.insight*2+Math.max(0,s.player.karma)*.12+(G.isNight(s)?10:0)+G.breakthroughPillBonus(pillTier===true?1:pillTier)-s.player.realm*3-(G.realmLevel(s)-1)*1.25,35,95);
   G.upgradeCost = (s, kind) => 90 + (s.vehicle.levels[kind]||0)*85;
   G.questReady = (s,q) => s.stats.delivered>=q.delivery && s.player.realm>=q.realm;
   G.choiceBlock = (s,c) => {
@@ -326,19 +338,19 @@
       }
       case 'alchemy':{
         const recipe=G.alchemyRecipe(a.params.recipe),success=G.rand(s)<G.alchemyChance(s,recipe);
-        s.alchemy.brews++;s.alchemy.xp+=success?2:1;let count=0;
-        if(success){count=1;if(G.rand(s)<G.alchemyExtraChance(s))count++;s.inventory[recipe.id]=(s.inventory[recipe.id]||0)+count;s.alchemy.successes++;}
-        const rank=G.ALCHEMY_RANKS[G.alchemyRank(s)].name;
-        G.log(s,success?`以${G.cauldron(s).name}炼成${recipe.name} ×${count}。炼药熟练度 ${s.alchemy.xp}，当前 ${rank}。`:`这一炉${recipe.name}火候失衡，药力散去。药材已消耗；炼药熟练度 +1。`,'炼药');break;
+        s.alchemy.brews++;s.alchemy.xp+=success?1+Math.ceil(recipe.complexity/3):1;let count=0,tier=0;
+        if(success){
+          tier=G.alchemyPillTier(s,G.rand(s));count=1;if(G.rand(s)<G.alchemyExtraChance(s))count++;
+          const itemId=G.pillItemId(recipe.product,tier);s.inventory[itemId]=(s.inventory[itemId]||0)+count;s.alchemy.successes++;
+        }
+        const rank=G.ALCHEMY_RANKS[G.alchemyRank(s)].name,pill=G.pillType(recipe.product);
+        G.log(s,success?`按${recipe.name}，以${G.cauldron(s).name}炼成${tier}阶${pill.name} ×${count}。炼药熟练度 ${s.alchemy.xp}，当前 ${rank}。`:`按${recipe.name}开炉失败，药力散去。药材已消耗；炼药熟练度 +1。`,'炼药');break;
       }
       case 'explore':{
         s.stats.explored++;
-        const pool=(s.position==='temple'
-          ? ['dewleaf',...(G.isNight(s)?['mooncap']:[]),...(s.player.realm>=2?['earthroot']:[])]
-          : ['herb','dewleaf',...(s.player.realm>=1?['sunblossom']:[]),...(G.isNight(s)&&s.player.realm>=1?['mooncap']:[])])
-          .map(G.alchemyMaterial).filter(m=>m&&s.player.realm>=m.realm);
+        const maxTier=Math.min(9,1+s.player.realm*2+(s.position==='temple'?1:0)),pool=G.ALCHEMY_MATERIALS.filter(m=>m.realm<=s.player.realm&&m.tier<=maxTier);
         const chance=Math.min(.45,.05+s.player.luck*.01),roll=G.rand(s);
-        if(pool.length&&roll<chance){const material=pool[Math.min(pool.length-1,Math.floor(roll/Math.max(chance,EPS)*pool.length))];s.inventory[material.id]=(s.inventory[material.id]||0)+1;G.log(s,`探索时额外发现${material.name} ×1。`,'机缘');}
+        if(pool.length&&roll<chance){const bias=G.isNight(s)?3:0,material=pool[(Math.floor(roll/Math.max(chance,EPS)*pool.length)+bias)%pool.length];s.inventory[material.id]=(s.inventory[material.id]||0)+1;G.log(s,`探索时额外发现${material.name} ×1。`,'机缘');}
         event(s,'explore');G.log(s,`在${G.locationName(s)}探索半小时，遇见一段新的故事。`,'探索');break;
       }
       case 'visit':finishVisit(s,a.params.id);break;
@@ -508,13 +520,13 @@
         }
         case 'breakthrough':{
           const realm=s.player.realm,realmLevel=G.realmLevel(s),need=G.realmNeed(s);must(need>0,'已达化神九重。');must(s.player.qi>=need,`需要 ${need} 修为。`);must(s.player.stamina>=20,'突破需要至少 20 点体力。');
-          if(payload.usePill)must((s.inventory.foundation||0)>0,'背包里没有破境丹。');
-          begin(s,'breakthrough',{realm,realmLevel,need,chance:G.breakChance(s,!!payload.usePill)});if(payload.usePill)s.inventory.foundation--;s.player.stamina-=20;s.player.qi-=need;
-          G.log(s,`开始从${G.realmLabel(s)}突破至${G.nextRealmLabel(s)}，投入 ${need} 修为与 20 体力。中断不退还投入；失败将退回约 75% 修为。`,'破境');break;
+          const pillTier=payload.usePill?G.highestPillTier(s,'foundation'):0;if(payload.usePill)must(pillTier>0,'背包里没有破境丹。');
+          begin(s,'breakthrough',{realm,realmLevel,need,chance:G.breakChance(s,pillTier),pillTier});if(payload.usePill)G.consumeHighestPill(s,'foundation');s.player.stamina-=20;s.player.qi-=need;
+          G.log(s,`开始从${G.realmLabel(s)}突破至${G.nextRealmLabel(s)}，投入 ${need} 修为与 20 体力。${pillTier?`服用${pillTier}阶破境丹，成功率 +${G.breakthroughPillBonus(pillTier)}%。`:''}中断不退还投入；失败将退回约 75% 修为。`,'破境');break;
         }
         case 'alchemy':{
-          const recipe=G.alchemyRecipe(payload.recipe);must(recipe,'丹方不存在。');must((s.alchemy?.cauldron||0)>0,'还没有药鼎。请先到长乐集购买药鼎。');must(G.alchemyUnlocked(s,recipe),`炼药熟练度或境界不足，暂未掌握${recipe.name}。`);
-          const materials=G.alchemyMaterials(recipe);effects(s,{mana:-recipe.mana},null,materials);begin(s,'alchemy',{recipe:recipe.id});G.log(s,`以${G.cauldron(s).name}开始炼制${recipe.name}。${G.alchemyMaterialText(recipe)} · 灵力 -${recipe.mana} 已投入，中断不返还。`,'炼药');break;
+          const recipe=G.alchemyRecipe(payload.recipe);must(recipe,'丹方不存在。');must((s.alchemy?.cauldron||0)>0,'还没有药鼎。请先到长乐集购买药鼎。');must(G.alchemyUnlocked(s,recipe),`炼药熟练度或境界不足，暂未掌握${recipe.name}。`);must(G.alchemyCauldronReady(s,recipe),`这张丹方至少需要${recipe.minCauldronTier}阶药鼎。`);
+          const materials=G.alchemyMaterials(recipe);effects(s,{mana:-recipe.mana},null,materials);begin(s,'alchemy',{recipe:recipe.id});G.log(s,`按${recipe.name}开炉。${G.alchemyMaterialText(recipe)} · 灵力 -${recipe.mana} 已投入；最终丹药阶数由药鼎与炼药师水平共同决定，中断不返还。`,'炼药');break;
         }
         case 'explore':must(['park','temple'].includes(s.position),'请先前往月渡公园或听雨观探索。');must(s.player.stamina>=12,'探索需要 12 点体力。');begin(s,'explore');G.log(s,'开始探索周围的街巷与灵息。','探索');break;
         case 'visit':{
