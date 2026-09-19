@@ -41,7 +41,7 @@
       player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, realmLevel: 1, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
       alchemy: {cauldron:0,xp:0,brews:0,successes:0},
-      inventory: {qi:1,heal:1,stamina:1,mana:0,herb:0,fragment:0,charm:0,foundation:0}, learned: [], equipment: [],
+      inventory: {qi:1,heal:1,stamina:1,spiritpill:0,bodypill:0,greatqi:0,marrowpill:0,mana:0,herb:0,dewleaf:0,sunblossom:0,mooncap:0,earthroot:0,fragment:0,charm:0,foundation:0}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
       daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], ending: null,
@@ -140,10 +140,13 @@
     return rank;
   };
   G.alchemyRecipe = id => G.ALCHEMY_RECIPES.find(r=>r.id===id);
+  G.alchemyMaterial = id => G.ALCHEMY_MATERIALS.find(m=>m.id===id);
+  G.alchemyMaterials = recipe => recipe?.materials || (recipe?.herbs ? {herb:recipe.herbs} : {});
+  G.alchemyMaterialText = recipe => Object.entries(G.alchemyMaterials(recipe)).map(([id,count])=>`${G.alchemyMaterial(id)?.name || G.ITEMS.find(i=>i.id===id)?.name || id} ×${count}`).join(' · ');
   G.alchemyUnlocked = (s,recipe) => !!recipe && s.player.realm>=recipe.realm && (s.alchemy?.xp||0)>=recipe.need;
   G.alchemyChance = (s,recipe) => clamp(recipe.base+s.player.insight*.008+G.cauldron(s).success+G.alchemyRank(s)*.02,.25,.98);
   G.alchemyExtraChance = s => clamp(G.cauldron(s).extra+G.alchemyRank(s)*.025,0,.55);
-  G.effectNames = {money:'现金',coins:'外卖币',health:'气血',stamina:'体力',mana:'灵力',qi:'修为',insight:'悟性',constitution:'根骨',agility:'身法',luck:'机缘',karma:'善缘',rep:'口碑',fragments:'碎玉',herb:'灵草',affinity:'好感',trust:'信任'};
+  G.effectNames = {money:'现金',coins:'外卖币',health:'气血',stamina:'体力',mana:'灵力',qi:'修为',insight:'悟性',constitution:'根骨',agility:'身法',luck:'机缘',karma:'善缘',rep:'口碑',fragments:'碎玉',herb:'青灵草',affinity:'好感',trust:'信任'};
   G.effectText = effects => Object.entries(effects || {}).filter(([,v])=>v).map(([k,v])=>`${G.effectNames[k]||k} ${v > 0 ? '+' : ''}${v}`).join(' · ') || '不改变属性';
   G.effectBlock = (s, effects, itemCost = {}) => {
     for (const [key,value] of Object.entries(effects || {})) if (value < 0 && ['money','coins','stamina','mana'].includes(key) && s.player[key] < -value) return `需要${G.effectNames[key]} ${-value}，当前 ${Math.floor(s.player[key])}。`;
@@ -326,11 +329,18 @@
         s.alchemy.brews++;s.alchemy.xp+=success?2:1;let count=0;
         if(success){count=1;if(G.rand(s)<G.alchemyExtraChance(s))count++;s.inventory[recipe.id]=(s.inventory[recipe.id]||0)+count;s.alchemy.successes++;}
         const rank=G.ALCHEMY_RANKS[G.alchemyRank(s)].name;
-        G.log(s,success?`以${G.cauldron(s).name}炼成${recipe.name} ×${count}。炼药熟练度 ${s.alchemy.xp}，当前 ${rank}。`:`这一炉${recipe.name}火候失衡，药力散去。材料已消耗；炼药熟练度 +1。`,'炼药');break;
+        G.log(s,success?`以${G.cauldron(s).name}炼成${recipe.name} ×${count}。炼药熟练度 ${s.alchemy.xp}，当前 ${rank}。`:`这一炉${recipe.name}火候失衡，药力散去。药材已消耗；炼药熟练度 +1。`,'炼药');break;
       }
-      case 'explore':
-        s.stats.explored++;if(G.rand(s)<Math.min(.45,.05+s.player.luck*.01)){s.inventory.herb=(s.inventory.herb||0)+1;G.log(s,'探索时额外发现青灵草 ×1。','机缘');}
+      case 'explore':{
+        s.stats.explored++;
+        const pool=(s.position==='temple'
+          ? ['dewleaf',...(G.isNight(s)?['mooncap']:[]),...(s.player.realm>=2?['earthroot']:[])]
+          : ['herb','dewleaf',...(s.player.realm>=1?['sunblossom']:[]),...(G.isNight(s)&&s.player.realm>=1?['mooncap']:[])])
+          .map(G.alchemyMaterial).filter(m=>m&&s.player.realm>=m.realm);
+        const chance=Math.min(.45,.05+s.player.luck*.01),roll=G.rand(s);
+        if(pool.length&&roll<chance){const material=pool[Math.min(pool.length-1,Math.floor(roll/Math.max(chance,EPS)*pool.length))];s.inventory[material.id]=(s.inventory[material.id]||0)+1;G.log(s,`探索时额外发现${material.name} ×1。`,'机缘');}
         event(s,'explore');G.log(s,`在${G.locationName(s)}探索半小时，遇见一段新的故事。`,'探索');break;
+      }
       case 'visit':finishVisit(s,a.params.id);break;
       case 'charge':G.log(s,'充电完成，电量已补满。','电动车');break;
       case 'repair':G.log(s,'维修完成，车况已恢复。','电动车');break;
@@ -504,7 +514,7 @@
         }
         case 'alchemy':{
           const recipe=G.alchemyRecipe(payload.recipe);must(recipe,'丹方不存在。');must((s.alchemy?.cauldron||0)>0,'还没有药鼎。请先到长乐集购买药鼎。');must(G.alchemyUnlocked(s,recipe),`炼药熟练度或境界不足，暂未掌握${recipe.name}。`);
-          effects(s,{mana:-recipe.mana},null,{herb:recipe.herbs});begin(s,'alchemy',{recipe:recipe.id});G.log(s,`以${G.cauldron(s).name}开始炼制${recipe.name}。灵草 ×${recipe.herbs}、灵力 -${recipe.mana} 已投入，中断不返还。`,'炼药');break;
+          const materials=G.alchemyMaterials(recipe);effects(s,{mana:-recipe.mana},null,materials);begin(s,'alchemy',{recipe:recipe.id});G.log(s,`以${G.cauldron(s).name}开始炼制${recipe.name}。${G.alchemyMaterialText(recipe)} · 灵力 -${recipe.mana} 已投入，中断不返还。`,'炼药');break;
         }
         case 'explore':must(['park','temple'].includes(s.position),'请先前往月渡公园或听雨观探索。');must(s.player.stamina>=12,'探索需要 12 点体力。');begin(s,'explore');G.log(s,'开始探索周围的街巷与灵息。','探索');break;
         case 'visit':{
@@ -540,8 +550,10 @@
           const next=(s.alchemy?.cauldron||0)+1,item=G.CAULDRONS[next];must(item,'药鼎已经升到最高阶。');must(s.player.realm>=item.realm,`需要进入${G.REALMS[item.realm].name}后才能驾驭${item.name}。`);must(s.player.money>=item.cost,`购买${item.name}需要 ¥${item.cost}。`);
           s.player.money-=item.cost;s.alchemy.cauldron=next;G.log(s,`在长乐集购入${item.name}，现金 -¥${item.cost}。炼药成丹率与额外产出得到提升。`,'炼药');break;
         }
-        case 'herb': {
-          must(s.position==='market','请先前往长乐集。');effects(s,{money:-15,herb:1});G.log(s,'在长乐集买到青灵草 ×1，现金 -¥15。','生活');break;
+        case 'herb':
+        case 'material': {
+          const id=action==='herb'?'herb':payload.id,material=G.alchemyMaterial(id);must(material,'药材不存在。');must(s.position==='market','请先前往长乐集购买药材。');must(s.player.realm>=material.realm,`需要进入${G.REALMS[material.realm].name}后才能处理${material.name}。`);must(s.player.money>=material.price,`购买${material.name}需要 ¥${material.price}。`);
+          s.player.money-=material.price;s.inventory[material.id]=(s.inventory[material.id]||0)+1;G.log(s,`在长乐集买到${material.name} ×1，现金 -¥${material.price}。`,'炼药');break;
         }
         case 'finale': {
           const option=G.endingOptions(s).find(e=>e.id===payload.id);must(option?.ready,'尚未达成这个结局的条件。');s.ending=option.id;if(!s.unlockedEndings.includes(option.id))s.unlockedEndings.push(option.id);G.log(s,`你选择了「${G.ENDINGS[option.id].title}」。这不是最后一段路。`,'归途');break;
