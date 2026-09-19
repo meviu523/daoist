@@ -147,9 +147,9 @@
   G.alchemyUnlocked = (s,recipe) => !!recipe && s.player.realm>=recipe.realm && (s.alchemy?.xp||0)>=recipe.need;
   G.alchemyCauldronReady = (s,recipe) => !!recipe && (G.cauldron(s).tier||0)>=recipe.minCauldronTier;
   G.alchemyChance = (s,recipe) => clamp(recipe.base+s.player.insight*.007+G.cauldron(s).success+(G.alchemistTier(s)-1)*.015,.20,.98);
-  G.alchemyExtraChance = s => clamp(G.cauldron(s).extra+(G.alchemistTier(s)-1)*.02,0,.65);
+  G.alchemyExtraChance = s => clamp(G.cauldron(s).extra+(G.alchemistTier(s)-1)*.02+s.player.insight*.002,0,.65);
   G.alchemyPillTier = (s,roll=0) => {
-    const cap=Math.max(1,Math.min(G.cauldron(s).tier||1,G.alchemistTier(s))),quality=roll+s.player.insight*.004+(G.cauldron(s).quality||0);
+    const cap=Math.max(1,Math.min(G.cauldron(s).tier||1,G.alchemistTier(s))),quality=roll+(G.cauldron(s).quality||0);
     return quality>=.78?cap:quality>=.40?Math.max(1,cap-1):Math.max(1,cap-2);
   };
   G.pillItemId = (typeId,tier) => G.PILL_ITEM_ID(typeId,clamp(Math.floor(tier)||1,1,9));
