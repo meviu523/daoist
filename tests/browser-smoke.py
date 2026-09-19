@@ -368,6 +368,11 @@ with sync_playwright() as p:
     assert offer.count() == 1
     assert offer.locator('.order-expiry-ring').count() == 1
     assert expanded.evaluate("""()=>getComputedStyle(document.querySelector('.order-point[data-order-id="fleeting-offer"] .point-visual')).animationName""") == 'orderPointIn'
+    expanded.wait_for_timeout(380)
+    centers = expanded.evaluate("""()=>{const p=document.querySelector('.order-point[data-order-id="fleeting-offer"]');const core=p.querySelector('.point-core').getBoundingClientRect(),ring=p.querySelector('.order-expiry-ring').getBoundingClientRect();return {core:[core.x+core.width/2,core.y+core.height/2],ring:[ring.x+ring.width/2,ring.y+ring.height/2]};}""")
+    assert abs(centers['core'][0]-centers['ring'][0]) < .5
+    assert abs(centers['core'][1]-centers['ring'][1]) < .5
+    assert offer.locator('.order-expiry-ring').get_attribute('transform') == 'rotate(-90 0 0)'
     ring_before = float(offer.locator('.order-expiry-ring').get_attribute('stroke-dashoffset'))
     toggle(expanded);pump(expanded, 120);toggle(expanded)
     ring_after = float(offer.locator('.order-expiry-ring').get_attribute('stroke-dashoffset'))
