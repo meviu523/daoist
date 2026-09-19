@@ -44,7 +44,7 @@
       inventory: {...Object.fromEntries(G.ITEMS.filter(i=>!i.unique).map(i=>[i.id,0])),qi:1,heal:1,stamina:1}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
-      daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], ending: null,
+      daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], unlockedFeatures: [], ending: null,
       flags: {firstOrder:false}, recentEvents: [], pending: null, orders: [], logs: [], lastRoute: null,
       location: null, activity: null, activeOrder: null, orderRefreshAt: 495, revision: 0
     };
@@ -151,6 +151,57 @@
     ? s.claimed.includes(source.quest)
     : s.flags[source.flag]===true && s.pending?.templateId!==source.event
       && !(s.activity?.kind==='choice'&&s.activity.params.event?.templateId===source.event);
+  // 查询是纯函数，渲染不能授予功能；所有权由事务/行动完成/显式迁移保存。
+  G.featureUnlocked = (s,id) => {
+    const feature=G.FEATURE_UNLOCKS.find(f=>f.id===id);
+    if(!s||!feature)return false;
+    if(s.unlockedFeatures?.includes(id))return true;
+    return (feature.requires||[]).every(parent=>G.featureUnlocked(s,parent))&&feature.ready(s);
+  };
+  G.panelUnlocked = (s,type) => !Object.hasOwn(G.FEATURE_PANELS,type)||G.featureUnlocked(s,G.FEATURE_PANELS[type]);
+  G.nextFeatureUnlock = s => G.FEATURE_UNLOCKS.find(f=>!f.optional&&!G.featureUnlocked(s,f.id))||null;
+  G.featureForAction = (action,payload={}) => {
+    if(action==='cultivate')return (payload.kind||'breath')==='breath'?'cultivation':'practice';
+    const gates={buy:'system',sign:'system',claim:'system',breakthrough:'practice',explore:'practice',
+      alchemy:'alchemy',cauldron:'alchemy',formula:'alchemy',herb:'alchemy',material:'alchemy',
+      upgrade:'upgrades',visit:'bonds',finale:'endings'};
+    return Object.hasOwn(gates,action)?gates[action]:null;
+  };
+  G.featureBlock = (s,action,payload={}) => {
+    const id=G.featureForAction(action,payload),f=G.FEATURE_UNLOCKS.find(f=>f.id===id);
+    return f&&!G.featureUnlocked(s,id)?`${f.name}尚未开启：${f.hint}。`:'';
+  };
+  G.syncFeatureUnlocks = (s,silent=false) => {
+    if(s.gameOver)return;
+    const before=new Set(s.unlockedFeatures||[]),known=new Set([...before].filter(id=>G.FEATURE_UNLOCKS.some(f=>f.id===id)));
+    // 补全旧档/显式所有权的前置入口，避免有炼药资格却打不开修行入口。
+    const add=id=>{if(known.has(id))return;known.add(id);for(const parent of G.FEATURE_UNLOCKS.find(f=>f.id===id)?.requires||[])add(parent);};
+    for(const id of [...known])for(const parent of G.FEATURE_UNLOCKS.find(f=>f.id===id).requires||[])add(parent);
+    s.unlockedFeatures=[...known];
+    for(const f of G.FEATURE_UNLOCKS)if(G.featureUnlocked(s,f.id)){
+      add(f.id);s.unlockedFeatures=[...known];
+    }
+    if(!silent)for(const f of G.FEATURE_UNLOCKS)if(known.has(f.id)&&!before.has(f.id))G.log(s,`玩法开启：${f.name}。${f.notice}`,'解锁');
+  };
+  G.restoreFeatureUnlocks = (s,raw,version) => {
+    s.unlockedFeatures=version>=10&&Array.isArray(raw.unlockedFeatures)
+      ? [...new Set(raw.unlockedFeatures.filter(id=>G.FEATURE_UNLOCKS.some(f=>f.id===id)))]:[];
+    const grant=id=>{if(!s.unlockedFeatures.includes(id))s.unlockedFeatures.push(id);};
+    if(version<10){
+      if(s.player.coins>0||s.daily.signedDay>0||s.claimed.length||s.learned.length||s.equipment.length)grant('system');
+      if(s.player.qi>0||G.realmRank(s)>0||s.stats.trained>0)grant('cultivation');
+      if(s.stats.trained>0||G.realmRank(s)>0||s.stats.explored>0)grant('practice');
+      if(s.alchemy.cauldrons.length||s.alchemy.formulas.length||s.alchemy.xp>0||s.alchemy.brews>0||G.ALCHEMY_MATERIALS.some(m=>s.inventory[m.id]>0))grant('alchemy');
+      if(Object.values(s.vehicle.levels).some(n=>n>0))grant('upgrades');
+      if(s.ending||s.unlockedEndings.length)grant('endings');
+    }
+    // 已经合法保存的在途付费行动继续恢复，不重复扣款、不回收能力。
+    if(s.activity){const id=G.featureForAction(s.activity.kind,s.activity.params);if(id)grant(id);}
+    G.syncFeatureUnlocks(s,true);
+  };
+  G.nextQuest = s => G.QUESTS.find(q=>!s.claimed.includes(q.id));
+  G.questVisible = (s,q) => !!q&&(s.claimed.includes(q.id)||G.nextQuest(s)?.id===q.id);
+  G.visibleQuests = s => G.QUESTS.filter(q=>G.questVisible(s,q));
   G.formulaRewardReady = (s,recipe) => {
     const source=recipe.acquisition;
     if(source.type==='story')return G.formulaStoryComplete(s,source);
@@ -329,6 +380,7 @@
     G.syncFormulaRewards(s);
     G.refreshOrders(s);
     G.afterWorldAction?.(s,kind);
+    G.syncFeatureUnlocks(s);
   }
   function finishChoice(s,p,index){
     const c=p.choices[index];
@@ -518,6 +570,7 @@
       must(!s.pending||action==='choose','请先完成当前事件的选择。');
       must(!s.ending||action==='continue','请先选择继续游历，或返回开始页。');
       must(!s.activity||instantWhileBusy.has(action),'当前行动仍在进行，请先停止。');
+      const featureError=G.featureBlock(s,action,payload);must(!featureError,featureError);
       switch(action){
         case 'stop':
           must(G.canStop(s),'当前行动不能中断。');
@@ -598,7 +651,7 @@
         }
         case 'claim': {
           if(payload.id==='daily'){must(!s.daily.claimed,'每日奖励已经领取。');must(s.daily.delivered>=3,'今天需要完成 3 单。');s.daily.claimed=true;effects(s,{coins:5,money:30,qi:10});G.log(s,'每日委托完成。外卖币 +5，现金 +¥30，修为 +10。','系统');}
-          else{const q=G.QUESTS.find(q=>q.id===payload.id);must(q,'委托不存在。');must(!s.claimed.includes(q.id),'奖励已经领取。');must(G.questReady(s,q),'委托条件尚未达成。');s.claimed.push(q.id);effects(s,q.reward);G.log(s,`「${q.title}」：${q.story} 奖励：${G.effectText(q.reward)}。`,'主线');}break;
+          else{const q=G.QUESTS.find(q=>q.id===payload.id);must(q,'委托不存在。');must(!s.claimed.includes(q.id),'奖励已经领取。');must(G.questVisible(s,q),'请先领取前一篇章奖励。');must(G.questReady(s,q),'委托条件尚未达成。');s.claimed.push(q.id);effects(s,q.reward);G.log(s,`「${q.title}」：${q.story} 奖励：${G.effectText(q.reward)}。`,'主线');}break;
         }
         case 'cauldron': {
           must(s.position==='market','请先前往长乐集购买或更换药鼎。');
@@ -628,7 +681,7 @@
       }
       // Zero-distance follow-ups still obey the same completion path.
       if(s.activity?.phase==='work'&&!s.activity.duration)finish(s,s.activity);
-      normalize(s);G.syncFormulaRewards(s);if(s.player.health<=EPS&&!s.activity&&!s.pending)beginRescue(s);
+      normalize(s);G.syncFormulaRewards(s);G.syncFeatureUnlocks(s);if(s.player.health<=EPS&&!s.activity&&!s.pending)beginRescue(s);
       s.turn++;s.revision++;s.updatedAt=Date.now();return {ok:true,state:s};
     }catch(error){if(error instanceof RuleError)return {ok:false,state:original,error:error.message};throw error;}
   };

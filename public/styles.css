@@ -18,3 +18,7 @@
 @media(max-width:800px){.game-header{padding-bottom:9px}.header-main{flex-wrap:wrap;gap:9px}.identity{flex:1;min-width:0}.clock-wrap{order:5;flex:1 0 100%;justify-content:space-between;border-top:1px solid var(--line);padding-top:8px}.clock-wrap>div:nth-child(2){display:flex;align-items:baseline;gap:10px}.clock-time{font-size:20px}.time-controls{margin:0;gap:8px}.time-controls button,.time-controls select{min-height:36px;padding:5px 10px}.resource-row{margin-top:9px}.map-stage{top:155px}.action-bar{left:12px;right:12px;bottom:132px;transform:none;max-width:none;min-width:0;gap:9px;padding:10px 12px}.action-summary strong{font-size:11px}.action-bar .btn{min-height:36px;padding:7px 10px}.map-legend{bottom:200px;font-size:8px}.log-panel{bottom:88px}.log-body{max-height:150px}.log-panel:has(.log-body){z-index:7}.map-caption{top:12px}.chapter-chip{max-width:155px}.action-bar .text-btn{max-width:36px;white-space:normal}}
 @media(max-width:380px){.action-summary>span{font-size:9px}.clock-desc{font-size:9px}.clock-wrap>div:nth-child(2){gap:6px}.header-main{gap:6px}.map-stage{top:155px}}
 @media(prefers-reduced-motion:reduce){.player-pulse{animation:none}}
+
+/* 解锁不预留空按钮；手机端保持可点尺寸，导航自身滚动而非撑宽页面。 */
+.unlock-hint{max-width:210px;margin:8px 0 0;font-size:10px;line-height:1.6;color:var(--muted);background:rgba(17,39,33,.8);padding:6px 10px;border-radius:8px}
+@media(max-width:800px){.unlock-hint{max-width:155px;font-size:9px}.game-nav{overflow-x:auto;justify-content:flex-start;scrollbar-width:thin}.nav-btn{flex:1 0 44px;min-width:44px}.nav-sep{flex-shrink:0}}
