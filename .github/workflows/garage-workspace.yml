@@ -1,0 +1,37 @@
+name: Starting garage validation
+on:
+  push:
+    branches: [fix/starting-home-garage]
+    paths: [.github/workflows/garage-workspace.yml, scripts/garage-default-change.py]
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+      - name: Apply and validate source changes
+        run: |
+          python3 scripts/garage-default-change.py
+          git diff --check
+          npm run check
+          npm test
+          npm run build
+          git config user.name 'meviu523'
+          git config user.email 'game.riversoft@gmail.com'
+          git add public tests docs README.md PROJECT_MEMORY.md package.json
+          git commit -m 'fix: keep starting home and garage unlocked'
+          git push origin HEAD:refs/heads/fix/starting-home-garage
+      - name: Archive verified workspace
+        if: always()
+        run: git archive HEAD -o /tmp/garage-workspace.tar
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: garage-workspace
+          path: /tmp/garage-workspace.tar
+          retention-days: 1
