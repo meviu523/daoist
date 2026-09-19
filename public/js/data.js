@@ -260,9 +260,9 @@
       name:`${pill.name}·${route}`,product:pill.id,route,complexity,
       materials,mana:6+complexity*3+Math.floor(pillIndex/3)*2,duration:15+complexity*3+(pillIndex%4)*2,
       base:Math.max(.42,.82-complexity*.035-(pillIndex%3)*.015),
-      need:Math.max(0,(complexity-1)*6+Math.floor(pillIndex/3)*5),
+      need:(complexity-1)*25+pillIndex*4,
       realm:Math.max(recipeRealm[routeIndex],Math.floor(pillIndex/4)-1,0),
-      minCauldronTier:Math.max(1,complexity-2),
+      minCauldronTier:complexity,
       desc:`${route}，用于炼制${pill.name}。丹方只规定配伍与火候，最终丹药阶数由药鼎与炼药师水平决定。`
     };
   }));
