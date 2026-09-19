@@ -93,12 +93,192 @@ def select_order(page):
     page.keyboard.press('Enter')
     assert page.locator('[data-act="deliver"]').is_enabled()
 
-def fixture(page, edits):
+def fixture(page, edits, unlock_gameplay=True):
+    # Isolated pre-existing gameplay regressions explicitly open feature gates.
+    # The progressive flow below opts out and starts from a genuine new save.
+    edits = dict(edits)
+    if unlock_gameplay:
+        edits['unlockedFeatures'] = page.evaluate('NightCourier.FEATURE_UNLOCKS.map(f=>f.id)')
     if page.locator('#panel[open] [data-ui="close"]').count():
         page.click('#panel [data-ui="close"]')
     page.click('[data-ui="home"]')
     page.evaluate('''(edits)=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k));const s=x.saves[0];Object.assign(s,edits);localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''', edits)
     page.locator('[data-ui="load"]').first.click()
+
+def forged_button(page, attrs):
+    page.evaluate('''attrs=>{const b=document.createElement('button');for(const [k,v] of Object.entries(attrs))b.dataset[k]=v;document.body.append(b);b.click();b.remove();}''', attrs)
+
+def finish_ui_activity(page):
+    if not current(page)['activity']:
+        return
+    if page.evaluate("window.__clock.reasons.has('manual')"):
+        toggle(page)
+    page.select_option('#time-speed', '10')
+    minutes = page.evaluate('NightCourier.activityRemaining(window.__live)')
+    pump(page, int(minutes * 100 + 80))
+
+def choose_ui(page):
+    index = page.evaluate('window.__live.pending.choices.findIndex(c=>!NightCourier.choiceBlock(window.__live,c))')
+    assert index >= 0
+    page.click(f'[data-act="choose"][data-index="{index}"]')
+    finish_ui_activity(page)
+
+def settle_ui(page):
+    for _ in range(12):
+        if not current(page)['pending']:
+            return
+        choose_ui(page)
+    raise AssertionError('Event chain did not finish')
+
+def nearest_ui_delivery(page):
+    target = page.evaluate('''()=>{const G=NightCourier,s=window.__live;return [...s.orders].filter(o=>!G.travelBlock(s,G.travelPlan(s,o.target))).sort((a,b)=>G.travelPlan(s,a.target).meters-G.travelPlan(s,b.target).meters)[0].target;}''')
+    page.locator(f'.order-point[data-place="{target}"]').focus()
+    page.keyboard.press('Enter')
+    assert page.locator('[data-act="deliver"]').is_enabled()
+    page.click('[data-act="deliver"]')
+    finish_ui_activity(page)
+
+def progressive_browser_checks(browser):
+    for width, height in [(1200, 900), (320, 740)]:
+        ctx, page, errors = setup(browser, width, height)
+        new_game(page, '渐进旅人')
+        nav = lambda: page.locator('#game-nav [data-panel]').evaluate_all('(els)=>els.map(b=>b.dataset.panel)')
+        initial = ['inventory', 'vehicle', 'rest', 'help']
+        assert nav() == initial
+        assert page.locator('.currency[data-panel="system"]').is_hidden()
+        assert page.locator('.chapter-chip').evaluate('(e)=>e.tagName') == 'DIV'
+        page.screenshot(path=str(OUT/f'progressive-start-{width}.png'))
+        before = current(page)
+        for attrs in [{'panel':'system'}, {'panel':'cultivation'}, {'act':'panel-alchemy'}]:
+            forged_button(page, attrs)
+            assert not page.locator('#panel').evaluate('(e)=>e.open')
+            assert current(page) == before
+            assert not page.evaluate("window.__clock.reasons.has('panel')")
+        # Location-only fixture: it does not grant progression or inventory.
+        fixture(page, {'position':'market','location':None}, unlock_gameplay=False)
+        page.locator('[data-place="market"]').focus();page.keyboard.press('Enter')
+        assert page.locator('[data-act="panel-alchemy"]').count() == 0
+        assert page.locator('[data-act="meal"]').count() == 1
+        page.click('[data-ui="close"]')
+        page.locator('#game-nav [data-panel="vehicle"]').click()
+        assert page.locator('[data-act="upgrade"]').count() == 0
+        assert page.locator('[data-act="charge"]').count() == 1
+        fixture(page, {'position':'home','location':None}, unlock_gameplay=False)
+        page.evaluate('window.__stableSpeed=document.querySelector("#time-speed")')
+        record(f'{width}px 真实新档仅四个基础按钮；隐藏快捷入口不能绕过，生存操作保留')
+
+        nearest_ui_delivery(page)
+        assert current(page)['pending']['templateId'] == 'first-order'
+        assert 'system' not in nav()
+        assert current(page)['stats']['delivered'] == 0
+        choose_ui(page)
+        assert current(page)['stats']['delivered'] == 1
+        assert 'system' in nav() and 'cultivation' not in nav() and 'alchemy' not in nav()
+        assert page.locator('.currency[data-panel="system"]').is_visible()
+        assert page.evaluate('window.__stableSpeed===document.querySelector("#time-speed")')
+        record(f'{width}px 首单真实到达不提前解锁，选择结算后系统导航与顶部入口一起出现')
+
+        page.locator('#game-nav [data-panel="system"]').click()
+        assert page.locator('[data-ui="system-tab"][data-id="endings"]').count() == 0
+        assert page.locator('[data-act="buy"][data-id="foundation"]').count() == 0
+        page.click('[data-ui="system-tab"][data-id="quests"]')
+        assert page.locator('[data-act="claim"][data-id="q2"]').count() == 0
+        page.click('[data-act="claim"][data-id="q1"]')
+        assert 'cultivation' in nav() and 'alchemy' not in nav()
+        assert page.locator('[data-act="claim"][data-id="q2"]').count() == 1
+        page.click('[data-ui="close"]')
+        page.locator('#game-nav [data-panel="cultivation"]').click()
+        assert page.locator('[data-act="cultivate"]').count() == 1
+        assert page.locator('[data-act="breakthrough"]').count() == 0
+        before = current(page)
+        forged_button(page, {'act':'cultivate','kind':'meditate'})
+        assert current(page) == before
+        page.click('[data-act="cultivate"][data-kind="breath"]')
+        pump(page, 500)
+        assert current(page)['activity']['elapsed'] > 0
+        assert not page.evaluate("NightCourier.featureUnlocked(window.__live,'practice')")
+        halfway = current(page)
+        page.click('[data-ui="home"]');page.locator('[data-ui="load"]').first.click()
+        assert current(page)['activity']['elapsed'] == halfway['activity']['elapsed']
+        assert not page.evaluate("NightCourier.featureUnlocked(window.__live,'practice')")
+        finish_ui_activity(page);settle_ui(page)
+        assert current(page)['stats']['trained'] == 1
+        page.locator('#game-nav [data-panel="cultivation"]').click()
+        assert page.locator('[data-act="cultivate"]').count() == 3
+        assert page.locator('[data-act="breakthrough"]').count() == 1
+        assert page.locator('[data-act="panel-alchemy"]').count() == 0
+        page.click('[data-ui="close"]')
+        record(f'{width}px 领奖开放吐纳；首次修炼途中读档不提前开放，完成才出现进阶与探索')
+
+        for _ in range(2):
+            nearest_ui_delivery(page)
+            for _ in range(10):
+                pending = current(page)['pending']
+                if not pending or pending['templateId'] == 'story-street-vein':
+                    break
+                choose_ui(page)
+            else:
+                raise AssertionError('配送事件未能在十次选择内结算')
+        assert current(page)['pending']['templateId'] == 'story-street-vein'
+        assert current(page)['stats']['delivered'] == 3
+        assert 'alchemy' not in nav()
+        choose_ui(page)
+        assert 'alchemy' in nav()
+        assert current(page)['alchemy']['cauldron'] == 0
+        assert len(current(page)['alchemy']['formulas']) == 12
+        page.screenshot(path=str(OUT/f'progressive-alchemy-open-{width}.png'))
+        page.locator('#game-nav [data-panel="alchemy"]').click()
+        text = page.locator('#panel').inner_text()
+        hidden_names = page.evaluate('NightCourier.ALCHEMY_RECIPES.filter(r=>!window.__live.alchemy.formulas.includes(r.id)).map(r=>r.name)')
+        assert all(name not in text for name in hidden_names)
+        assert '丹火与药香' in text
+        assert page.locator('[data-act="cultivate"]').count() == 0
+        page.click('[data-ui="close"]')
+        record(f'{width}px 真实连续三单主线完成后出现独立炼药导航，未获得丹方仍隐藏')
+
+        # Higher-stage UI fixtures: thresholds are tested independently in Node.
+        edits = current(page)
+        edits['stats']['delivered'] = 4
+        edits['position'] = 'garage';edits['location'] = None
+        edits['bonds']['chen']['met'] = True
+        fixture(page, edits, unlock_gameplay=False)
+        page.locator('#game-nav [data-panel="vehicle"]').click()
+        assert page.locator('[data-act="upgrade"]').count() == 0
+        edits = current(page);edits['stats']['delivered'] = 5
+        fixture(page, edits, unlock_gameplay=False)
+        page.locator('#game-nav [data-panel="vehicle"]').click()
+        assert page.locator('[data-act="upgrade"]').count() == 3
+        page.click('[data-ui="close"]')
+        page.locator('#game-nav [data-panel="bonds"]').click()
+        assert '陈默' in page.locator('#panel').inner_text()
+        page.click('[data-ui="close"]')
+        page.locator('#game-nav [data-panel="system"]').click()
+        assert page.locator('[data-ui="system-tab"][data-id="endings"]').count() == 0
+        edits = current(page);edits['stats']['delivered'] = 20
+        fixture(page, edits, unlock_gameplay=False)
+        page.locator('#game-nav [data-panel="system"]').click()
+        assert page.locator('[data-ui="system-tab"][data-id="endings"]').count() == 1
+        page.click('[data-ui="system-tab"][data-id="endings"]')
+        assert page.locator('[data-ui="confirm-ending"]').count() == 5
+        page.click('[data-ui="close"]')
+        assert len(nav()) == 8
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        assert page.locator('#game-nav .nav-btn').evaluate_all('(buttons)=>buttons.every(b=>b.getBoundingClientRect().width>=44)')
+        page.screenshot(path=str(OUT/f'progressive-all-nav-{width}.png'))
+        record(f'{width}px 羁绊、5单升级与20单归途按条件出现；全导航可滚动且不撑宽页面')
+
+        page.click('[data-ui="home"]')
+        new_game(page, '新的起点')
+        assert nav() == initial
+        assert page.locator('.currency[data-panel="system"]').is_hidden()
+        assert current(page)['unlockedFeatures'] == []
+        page.click('[data-ui="home"]')
+        page.locator('.save-card').filter(has_text='渐进旅人').locator('[data-ui="load"]').click()
+        assert len(nav()) == 8
+        assert page.locator('#game-screen').get_attribute('data-paused') == 'true'
+        assert not errors, errors
+        record(f'{width}px 从已开放存档切到新档不残留按钮或归途页，旧档重载保留解锁与暂停')
+        ctx.close()
 
 with sync_playwright() as p:
     executable = os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium')
@@ -106,19 +286,27 @@ with sync_playwright() as p:
     if Path(executable).exists():
         kwargs['executable_path'] = executable
     browser = p.chromium.launch(**kwargs)
+    progressive_browser_checks(browser)
     ctx, page, errors = setup(browser)
     page.screenshot(path=str(OUT/'start-desktop.png'))
     new_game(page)
     assert page.locator('.player-name').inner_text() == '云行'
     assert '外卖修仙录' not in page.locator('#game-header').inner_text()
     assert page.locator('.player-marker').count() == 1
+    assert page.locator('.game-nav [data-panel="cultivation"]').count() == 0
+    assert page.locator('.game-nav [data-panel="system"]').count() == 0
+    assert page.locator('.game-nav [data-panel="bonds"]').count() == 0
+    fixture(page, {})
+    toggle(page)
     page.locator('.game-nav [data-panel="cultivation"]').click()
     assert '凡人一重' in page.locator('#panel').inner_text()
+    page.click('[data-ui="close"]')
+    page.locator('.game-nav [data-panel="alchemy"]').click()
     assert '无药鼎' in page.locator('#panel').inner_text()
     assert '尚未获得任何丹方' in page.locator('#panel').inner_text()
     assert page.locator('[data-act="alchemy"]').count() == 0
     page.click('[data-ui="close"]')
-    record('修行面板显示九重小境界，新档未获得丹方时不显示开炉入口')
+    record('新档隐藏进阶导航；已开放夹具显示九重修行，炼药页不泄露未得丹方')
     page.screenshot(path=str(OUT/'game-desktop.png'))
     assert page.evaluate('NightCourier.PLACES.length') == 110
     assert page.locator('.map-point').count() <= 15
@@ -287,7 +475,7 @@ with sync_playwright() as p:
     ctx, craft, cerrors = setup(browser, 1200, 900)
     new_game(craft, '药童')
     craft.click('[data-ui="home"]')
-    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.player.money=10000;s.alchemy.xp=999;for(const m of NightCourier.ALCHEMY_MATERIALS)s.inventory[m.id]=10;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
+    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.player.money=10000;s.alchemy.xp=999;s.unlockedFeatures=NightCourier.FEATURE_UNLOCKS.map(f=>f.id);for(const m of NightCourier.ALCHEMY_MATERIALS)s.inventory[m.id]=10;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
     craft.locator('[data-ui="load"]').first.click()
     assert current(craft)['player']['money'] == 10000
     craft.locator('[data-place="market"]').focus();craft.keyboard.press('Enter')
@@ -296,13 +484,13 @@ with sync_playwright() as p:
     travel_ms = int((craft.evaluate("NightCourier.travelPlan(window.__live,'market').minutes") / 10 + .25) * 1000)
     pump(craft, travel_ms)
     assert current(craft)['position'] == 'market'
-    craft.locator('.game-nav [data-panel="cultivation"]').click()
+    craft.locator('.game-nav [data-panel="alchemy"]').click()
     panel_text = craft.locator('#panel').inner_text()
     assert '尚未获得任何丹方' in panel_text
     assert craft.locator('[data-act="alchemy"]').count() == 0
     hidden_name = craft.evaluate("NightCourier.ALCHEMY_RECIPES[0].name")
     assert hidden_name not in panel_text
-    craft.click('[data-act="cauldron"]')
+    craft.click('[data-act="cauldron"][data-id="1"]')
     assert stored(craft)['alchemy']['cauldron'] == 1
     before_formula_money = current(craft)['player']['money']
     craft.click('[data-act="formula"]')
@@ -334,7 +522,7 @@ with sync_playwright() as p:
           s.alchemy.formulas=G.ALCHEMY_RECIPES.filter(r=>r.acquisition.type==='shop').map(r=>r.id);
           return s;}""")
         fixture(formula, edits)
-        formula.locator('.game-nav [data-panel="cultivation"]').click()
+        formula.locator('.game-nav [data-panel="alchemy"]').click()
         text = formula.locator('#panel').inner_text()
         assert '当前境界商店丹方已收齐' in text
         assert formula.locator('[data-act="formula"]').is_disabled()
@@ -355,7 +543,7 @@ with sync_playwright() as p:
         assert formula.evaluate('document.documentElement.scrollWidth<=innerWidth')
         formula.screenshot(path=str(OUT/f'formula-bonds-{width}.png'))
         formula.click('[data-ui="close"]')
-        formula.locator('.game-nav [data-panel="cultivation"]').click()
+        formula.locator('.game-nav [data-panel="alchemy"]').click()
         text = formula.locator('#panel').inner_text()
         assert '获取途径：羁绊 · 陈默' in text
         hidden_names = formula.evaluate("NightCourier.ALCHEMY_RECIPES.filter(r=>!window.__live.alchemy.formulas.includes(r.id)).map(r=>r.name)")
@@ -380,7 +568,7 @@ with sync_playwright() as p:
     before = current(story)
     fixture(story, before)
     assert current(story)['alchemy']['formulas'] == before['alchemy']['formulas']
-    story.locator('.game-nav [data-panel="cultivation"]').click()
+    story.locator('.game-nav [data-panel="alchemy"]').click()
     assert '获取途径：剧情 · 地图上多出来的一条线' in story.locator('#panel').inner_text()
     assert not serrs, serrs
     record('剧情待选读档不提前领丹方，真实点击结算获得六张，重载不重复奖励')
@@ -389,6 +577,8 @@ with sync_playwright() as p:
     for width, height in [(390, 844), (320, 740)]:
         ctx, mobile, merrors = setup(browser, width, height)
         new_game(mobile, '行舟')
+        fixture(mobile, {})
+        toggle(mobile)
         pump(mobile, 100)
         mobile.screenshot(path=str(OUT/f'game-{width}.png'))
         mobile.click('[data-ui="fit-map"]')

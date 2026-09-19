@@ -33,14 +33,14 @@
     return current;
   };
 
-  // 系统不是开局一次性开放全部能力。基础补给立即可用，修行资源随境界解锁。
+  // 系统不是开局一次性开放全部能力。基础补给在首单结算后开放，修行资源仍随境界解锁。
   const unlocks = {
     qi:0, heal:0, stamina:0, mana:0, herb:0,
     fragment:1, charm:1, foundation:1, breathing:1, lightstep:1,
     jade:2, robe:2
   };
   for (const item of G.ITEMS) item.unlockRealm = unlocks[item.id] ?? item.unlockRealm ?? 0;
-  G.itemUnlocked = (s, item) => s.player.realm >= (item.unlockRealm || 0);
+  G.itemUnlocked = (s, item) => G.featureUnlocked(s,'system') && s.player.realm >= (item.unlockRealm || 0);
 
   // 都市生活继续是订单主体，但修行越深，越容易收到“只有你看得懂”的特殊配送。
   G.ORDER_TYPES.push(
@@ -149,6 +149,7 @@
       for (const key of G.STORY_FLAG_KEYS) s.flags[key] = raw?.flags?.[key] === true;
       // 已完成的旧剧情和羁绊补领一次；仍在待选/执行中的主线不算完成。
       G.syncFormulaRewards(s);
+      G.syncFeatureUnlocks(s,true);
       return s;
     };
   }
@@ -175,7 +176,7 @@
   G.perform = (original, action, payload = {}) => {
     if (action === 'buy') {
       const item = G.ITEMS.find(i => i.id === payload.id);
-      if (item && !G.itemUnlocked(original, item)) {
+      if (G.featureUnlocked(original,'system') && item && !G.itemUnlocked(original, item)) {
         return { ok:false, state:original, error:`需要进入${G.REALMS[item.unlockRealm].name}后，系统才会开放这项兑换。` };
       }
     }

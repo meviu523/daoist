@@ -2,14 +2,33 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 9;
-  G.APP_VERSION = '1.4.2';
+  G.VERSION = 10;
+  G.APP_VERSION = '1.5.0';
   G.TITLE = '外卖修仙录';
   // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050, 2290, 2530];
   G.GRID_Y = [120, 300, 480, 660, 840, 1020, 1200, 1380, 1560, 1740];
   G.WORLD = { width: 2660, height: 1860, metersPerUnit: 3.5 };
   G.CHARGE = Object.freeze({ minutes: 10, cost: 8 });
+  // 功能开放只看已结算的经历；门槛、说明和入口共享同一份配置。
+  G.FEATURE_UNLOCKS = [
+    {id:'system',name:'系统',hint:'完成并结算第 1 单配送',ready:s=>s.stats.delivered>=1,
+      notice:'导航栏已开放系统，可签到、兑换补给和领取委托奖励。'},
+    {id:'cultivation',name:'修行',hint:'在系统委托中领取「第一份人间烟火」奖励',requires:['system'],ready:s=>s.claimed.includes('q1'),
+      notice:'导航栏已开放修行，先从一次完整的吐纳开始。'},
+    {id:'practice',name:'进阶修行与探索',hint:'完成一次吐纳修炼',requires:['cultivation'],ready:s=>s.stats.trained>=1,
+      notice:'修行中开放入定、淬体和突破；月渡公园、听雨观开放探索。'},
+    {id:'alchemy',name:'炼药',hint:'累计完成 3 单，并完成「地图上多出来的一条线」主线选择',requires:['cultivation'],
+      ready:s=>s.stats.delivered>=3&&G.formulaStoryComplete(s,{flag:'storyStreetVein',event:'story-street-vein'}),
+      notice:'导航栏已开放炼药，可前往长乐集购买药鼎、药材与商店丹方。'},
+    {id:'upgrades',name:'座驾升级',hint:'累计完成并结算 5 单配送',ready:s=>s.stats.delivered>=5,
+      notice:'座驾面板已开放升级，需要到修车铺付费改装。'},
+    {id:'endings',name:'归途',hint:'累计完成并结算 20 单配送',requires:['system'],ready:s=>s.stats.delivered>=20,
+      notice:'系统已开放归途页，满足各结局条件后可自行选择。'},
+    {id:'bonds',name:'羁绊',hint:'通过配送或奇遇结识第一位人物',optional:true,ready:s=>Object.values(s.bonds).some(b=>b.met===true),
+      notice:'导航栏已开放羁绊，只显示真正结识过的人物。'}
+  ];
+  G.FEATURE_PANELS = {system:'system',cultivation:'cultivation',alchemy:'alchemy',bonds:'bonds'};
   G.ROAD_LAYOUT = { riverColumn: 3, bridgeRows: [1, 3, 5, 7] };
   G.ROAD_NODES = G.GRID_Y.flatMap((y,r) => G.GRID_X.map((x,c) => ({x,y,c,r})));
   // 绘制、寻路和途中存档校验共用同一组真实道路，不另画可穿江的假路。
