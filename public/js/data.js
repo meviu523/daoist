@@ -2,14 +2,20 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier = root.NightCourier || {};
-  G.VERSION = 10;
-  G.APP_VERSION = '1.5.0';
+  G.VERSION = 11;
+  G.APP_VERSION = '1.6.0';
   G.TITLE = '外卖修仙录';
   // 只向东、向南追加网格；原 7×6 城区的坐标、地点 ID 与桥梁不变。
   G.GRID_X = [130, 370, 610, 850, 1090, 1330, 1570, 1810, 2050, 2290, 2530];
   G.GRID_Y = [120, 300, 480, 660, 840, 1020, 1200, 1380, 1560, 1740];
   G.WORLD = { width: 2660, height: 1860, metersPerUnit: 3.5 };
   G.CHARGE = Object.freeze({ minutes: 10, cost: 8 });
+  G.ALCHEMY_REALM_BY_TIER = Object.freeze([0,0,0,1,1,2,3,3,4,5]);
+  G.AUCTION = Object.freeze({name:'万宝拍卖场',place:'market',opens:1080,roundMinutes:5,lotCount:3,
+    openingRatio:.65,stepRatio:.08,maxRivalSteps:8,
+    realmByTier:G.ALCHEMY_REALM_BY_TIER});
+  // 匿名席位，不作为自动结识的羁绊人物。
+  G.AUCTION_BIDDERS = [{id:'herbalist',name:'青衣药商'},{id:'wanderer',name:'赤袖散修'},{id:'collector',name:'青灯藏家'}];
   // 功能开放只看已结算的经历；门槛、说明和入口共享同一份配置。
   G.FEATURE_UNLOCKS = [
     {id:'system',name:'系统',hint:'完成并结算第 1 单配送',ready:s=>s.stats.delivered>=1,
@@ -23,12 +29,14 @@
       notice:'导航栏已开放炼药，可前往长乐集购买药鼎、药材与商店丹方。'},
     {id:'upgrades',name:'座驾升级',hint:'累计完成并结算 5 单配送',ready:s=>s.stats.delivered>=5,
       notice:'座驾面板已开放升级，需要到修车铺付费改装。'},
+    {id:'auction',name:'拍卖场',hint:'开放炼药后，累计完成并结算 10 单配送',requires:['alchemy'],ready:s=>s.stats.delivered>=10,
+      notice:'长乐集的万宝拍卖场递来请柬。导航已开放拍卖，每晚 18:00–24:00 可到场竞价。'},
     {id:'endings',name:'归途',hint:'累计完成并结算 20 单配送',requires:['system'],ready:s=>s.stats.delivered>=20,
       notice:'系统已开放归途页，满足各结局条件后可自行选择。'},
     {id:'bonds',name:'羁绊',hint:'通过配送或奇遇结识第一位人物',optional:true,ready:s=>Object.values(s.bonds).some(b=>b.met===true),
       notice:'导航栏已开放羁绊，只显示真正结识过的人物。'}
   ];
-  G.FEATURE_PANELS = {system:'system',cultivation:'cultivation',alchemy:'alchemy',bonds:'bonds'};
+  G.FEATURE_PANELS = {system:'system',cultivation:'cultivation',alchemy:'alchemy',bonds:'bonds',auction:'auction'};
   G.ROAD_LAYOUT = { riverColumn: 3, bridgeRows: [1, 3, 5, 7] };
   G.ROAD_NODES = G.GRID_Y.flatMap((y,r) => G.GRID_X.map((x,c) => ({x,y,c,r})));
   // 绘制、寻路和途中存档校验共用同一组真实道路，不另画可穿江的假路。
@@ -194,7 +202,7 @@
         ['下一张拍什么','天快亮时，苏砚把相机递给你。「总拍城市，我也想留一张自己的照片。」',c('替她拍一张认真看镜头的照片','她第一次没有躲在取景器后面。',{affinity:9,trust:8},{path:'friend'}),c('说想和她一起出现在照片里','定时快门亮起时，她悄悄靠近了一点。',{affinity:12,trust:7},{path:'romance',minTrust:12}),c('拍下河面和刚亮的天','你们约好以后每年都来拍同一个清晨。',{affinity:8,trust:8,karma:2},{path:'friend'})]
       ] }
   ];
-  const ALCHEMY_REALM_BY_TIER = [0,0,0,1,1,2,3,3,4,5];
+  const ALCHEMY_REALM_BY_TIER = G.ALCHEMY_REALM_BY_TIER;
   const materialNames = [
     '青灵草','凝露叶','云纹苔','清心藤','山泉藻','白芷灵根','紫苏芽','玉竹芯',
     '赤阳花','火绒芝','丹霞果','朱砂蕊','焰尾草','赤练藤','暖玉参',

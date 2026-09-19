@@ -28,7 +28,7 @@ function street(s,duration=0){
 }
 
 test('真实新档仅基础导航可用，无功能所有权或免费解锁奖励',()=>{
-  const s=fresh();assert.equal(s.schemaVersion,10);assert.deepEqual(s.unlockedFeatures,[]);
+  const s=fresh();assert.equal(s.schemaVersion,G.VERSION);assert.deepEqual(s.unlockedFeatures,[]);
   for(const p of ['inventory','vehicle','rest','help','character','place'])assert.ok(G.panelUnlocked(s,p));
   for(const p of ['system','cultivation','alchemy','bonds'])assert.equal(G.panelUnlocked(s,p),false);
   assert.equal(G.nextFeatureUnlock(s).id,'system');assert.equal(unlockLogs(s).length,0);

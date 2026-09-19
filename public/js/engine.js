@@ -10,8 +10,10 @@
   G.clamp = clamp;
   G.day = s => Math.floor(s.minutes / 1440) + 1;
   G.isNight = s => s.minutes % 1440 >= 1080 || s.minutes % 1440 < 360;
-  G.clock = s => `${String(Math.floor(s.minutes % 1440 / 60)).padStart(2, '0')}:${String(Math.floor(s.minutes % 60)).padStart(2, '0')}`;
-  G.timestamp = m => `第${Math.floor(m / 1440) + 1}日 ${String(Math.floor(m % 1440 / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
+  // 仅展示时容忍积分浮点尾差，避免完成五分钟竞价却显示为前一分钟。
+  const displayMinute = m => Math.floor(m+1e-8);
+  G.clock = s => {const m=displayMinute(s.minutes);return `${String(Math.floor(m%1440/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;};
+  G.timestamp = m => `第${Math.floor(displayMinute(m)/1440)+1}日 ${G.clock({minutes:m})}`;
   G.rand = s => { let x = s.seed >>> 0 || 1; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; s.seed = x >>> 0; return s.seed / 4294967296; };
   const int = (s, min, max) => Math.floor(G.rand(s) * (max - min + 1)) + min;
   G.realmLevel = s => clamp(Number(s.player.realmLevel)||1,1,G.REALM_LEVELS.length);
@@ -41,6 +43,7 @@
       player: { money: 120, coins: 0, health: 100, stamina: 100, mana: 60, qi: 0, realm: 0, realmLevel: 1, insight: 5, constitution: 5, agility: 5, luck: 5, karma: 0, rep: 0 },
       vehicle: { battery: 80, durability: 100, levels: {speed:0,battery:0,durability:0} },
       alchemy: {cauldron:0,cauldrons:[],formulas:[],xp:0,brews:0,successes:0},
+      auction:G.emptyAuction(),
       inventory: {...Object.fromEntries(G.ITEMS.filter(i=>!i.unique).map(i=>[i.id,0])),qi:1,heal:1,stamina:1}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
@@ -164,7 +167,7 @@
     if(action==='cultivate')return (payload.kind||'breath')==='breath'?'cultivation':'practice';
     const gates={buy:'system',sign:'system',claim:'system',breakthrough:'practice',explore:'practice',
       alchemy:'alchemy',cauldron:'alchemy',formula:'alchemy',herb:'alchemy',material:'alchemy',
-      upgrade:'upgrades',visit:'bonds',finale:'endings'};
+      upgrade:'upgrades',visit:'bonds',finale:'endings',auctionCatalog:'auction',auctionBid:'auction',auction:'auction'};
     return Object.hasOwn(gates,action)?gates[action]:null;
   };
   G.featureBlock = (s,action,payload={}) => {
@@ -198,6 +201,148 @@
     // 已经合法保存的在途付费行动继续恢复，不重复扣款、不回收能力。
     if(s.activity){const id=G.featureForAction(s.activity.kind,s.activity.params);if(id)grant(id);}
     G.syncFeatureUnlocks(s,true);
+  };
+  // 拍品与对手预算只在首次查看当日图录时生成；渲染和每帧推进均不抽奖。
+  G.emptyAuction = () => ({day:0,realm:0,lots:[],activeId:null,wins:0,spent:0});
+  G.auctionLot = (s,id) => s.auction?.lots.find(l=>l.id===id);
+  G.auctionHours = () => `${String(G.AUCTION.opens/60).padStart(2,'0')}:00–24:00`;
+  G.auctionCloseAt = s => s.auction.day*1440;
+  G.auctionHeld = s => s.auction?.lots.reduce((n,l)=>n+l.held,0)||0;
+  G.auctionLotInfo = lot => {
+    const material=lot?.kind==='material'?G.alchemyMaterial(lot.item):null;
+    const pill=lot?.kind==='pill'?G.PILL_ITEMS.find(p=>p.id===lot.item):null;
+    const cauldron=lot?.kind==='cauldron'?G.CAULDRONS.find(c=>c.level>0&&String(c.level)===lot.item):null;
+    const item=material||pill||cauldron;if(!item)return null;
+    const value=material?material.price*lot.count:cauldron?cauldron.cost:(60+pill.tier*25+(pill.pillType==='foundation'?60:0))*lot.count;
+    return {name:item.name,tier:item.tier,desc:item.desc,value,
+      realm:material?.realm??cauldron?.realm??G.AUCTION.realmByTier[pill.tier],
+      opening:Math.ceil(value*G.AUCTION.openingRatio/5)*5,
+      step:Math.max(5,Math.ceil(value*G.AUCTION.stepRatio/5)*5)};
+  };
+  G.auctionNextBid = (lot,raise=1) => {
+    const info=G.auctionLotInfo(lot);
+    return info?(lot.status==='ready'?info.opening-info.step:lot.price)+info.step*raise:0;
+  };
+  G.auctionBidBlock = (s,lot,raise=1) => {
+    const feature=G.featureBlock(s,'auctionBid');if(feature)return feature;
+    if(s.position!==G.AUCTION.place)return '请先到长乐集的万宝拍卖场。';
+    if(![1,3].includes(raise))return '只能选择加一口或加三口。';
+    if(!lot||!['ready','decision'].includes(lot.status)||s.auction.day!==G.day(s))return '这件拍品已结束或不属于今日场次。';
+    if(s.auction.activeId&&s.auction.activeId!==lot.id)return '请先完成当前拍品的竞价。';
+    const today=s.minutes%1440;
+    if(today<G.AUCTION.opens)return `尚未开拍，每日 ${G.auctionHours()} 举行。`;
+    if(s.minutes+G.AUCTION.roundMinutes>G.auctionCloseAt(s)+EPS)return '距散场不足一轮，不能再出价。';
+    const info=G.auctionLotInfo(lot);
+    if(!info||info.realm>s.player.realm)return '境界不足，无法竞拍这件拍品。';
+    if(lot.kind==='cauldron'){
+      if(!s.alchemy.cauldrons.length)return '需要先在长乐集购得自己的第一口药鼎。';
+      if(s.alchemy.cauldrons.includes(Number(lot.item)))return '已经拥有这口药鼎，不重复竞拍。';
+    }else if((s.inventory[lot.item]||0)+lot.count>9999)return '行囊中该物品数量已接近上限。';
+    if(s.player.money<G.auctionNextBid(lot,raise))return '现金不足以冻结本次出价。';
+    return '';
+  };
+  function prepareAuction(s){
+    if(s.auction.day===G.day(s))return;
+    must(!s.auction.activeId,'上一件拍品尚未完成。');
+    const pick=pool=>pool[int(s,0,pool.length-1)];
+    const materials=G.ALCHEMY_MATERIALS.filter(m=>m.realm<=s.player.realm);
+    const pills=G.PILL_ITEMS.filter(p=>G.AUCTION.realmByTier[p.tier]<=s.player.realm);
+    const cauldrons=s.alchemy.cauldrons.length?G.CAULDRONS.filter(c=>c.level>0&&c.realm<=s.player.realm&&!s.alchemy.cauldrons.includes(c.level)):[];
+    const first=pick(materials),third=cauldrons.length?{kind:'cauldron',item:String(pick(cauldrons).level),count:1}
+      : {kind:'material',item:pick(materials.filter(m=>m.id!==first.id)).id,count:int(s,3,5)};
+    const lots=[{kind:'material',item:first.id,count:int(s,3,5)},
+      {kind:'pill',item:pick(pills).id,count:int(s,1,2)},third].map((spec,index)=>{
+        const info=G.auctionLotInfo(spec);
+        return {...spec,id:`auction-${G.day(s)}-${index}`,status:'ready',price:0,leader:null,held:0,round:0,
+          rivals:G.AUCTION_BIDDERS.map(b=>({id:b.id,ceiling:info.opening+info.step*int(s,0,G.AUCTION.maxRivalSteps)}))};
+      });
+    s.auction={...s.auction,day:G.day(s),realm:s.player.realm,lots,activeId:null};
+    G.log(s,`翻开万宝拍卖场第 ${s.auction.day} 日图录：三件拍品已经封存，${G.auctionHours()} 可到场竞价。今日不因重开面板或读档换货。`,'拍卖');
+  }
+  G.auctionDecision = (s,lot) => {
+    const info=G.auctionLotInfo(lot),name=G.AUCTION_BIDDERS.find(b=>b.id===lot.leader)?.name||'另一位买家';
+    return {id:`${lot.id}-round-${lot.round}`,templateId:'auction-bid',kind:'auction',source:'classic',aiStatus:'skip',
+      auction:{day:s.auction.day,lotId:lot.id,round:lot.round},title:'万宝拍卖场 · 继续竞价',
+      text:`${name}为「${info.name} ×${lot.count}」出价 ¥${lot.price}。你的上一笔冻结款已全额返还。参考价 ¥${info.value}，每口 ¥${info.step}。继续出价将冻结新的全额报价；放弃不收取费用。`,
+      choices:[1,3].map(raise=>({label:`${raise===1?'加一口':'加三口'} · 出价 ¥${G.auctionNextBid(lot,raise)}`,
+        effects:{money:-G.auctionNextBid(lot,raise)},duration:G.AUCTION.roundMinutes,auctionRaise:raise}))
+        .concat({label:'放弃这件拍品，保留现金',effects:{},auctionRaise:0})};
+  };
+  function startAuctionBid(s,lot,raise){
+    const block=G.auctionBidBlock(s,lot,raise);must(!block,block);
+    const price=G.auctionNextBid(lot,raise);s.player.money-=price;
+    lot.price=price;lot.held=price;lot.leader='player';lot.status='bidding';lot.round++;s.auction.activeId=lot.id;
+    begin(s,'auction',{day:s.auction.day,lotId:lot.id,round:lot.round});
+    G.log(s,`为「${G.auctionLotInfo(lot).name} ×${lot.count}」举牌 ¥${price}，全额暂时冻结。竞价 ${G.AUCTION.roundMinutes} 分钟后回应；冻结款不能用于购物或支付房租。`,'拍卖');
+  }
+  function finishAuctionBid(s,a){
+    const lot=G.auctionLot(s,a.params.lotId),info=G.auctionLotInfo(lot);
+    must(lot?.status==='bidding'&&lot.round===a.params.round&&s.auction.day===a.params.day,'拍卖轮次与行动不一致。');
+    const rivals=lot.rivals.filter(r=>r.ceiling>=lot.price+info.step);
+    const rival=rivals.length?rivals[(lot.round-1)%rivals.length]:null;
+    if(rival){
+      const refunded=lot.held;s.player.money+=refunded;lot.held=0;lot.price+=info.step;lot.leader=rival.id;
+      const name=G.AUCTION_BIDDERS.find(b=>b.id===rival.id).name;
+      G.log(s,`${name}加价至 ¥${lot.price}，你的 ¥${refunded} 冻结款已全额返还。`,'拍卖');
+      if(s.minutes+G.AUCTION.roundMinutes>G.auctionCloseAt(s)+EPS){
+        lot.status='lost';s.auction.activeId=null;G.log(s,`场次即将结束，已无完整竞价轮次。「${info.name}」由${name}竞得。`,'拍卖');
+      }else{lot.status='decision';s.pending=G.auctionDecision(s,lot);}
+    }else{
+      const price=lot.held;lot.held=0;lot.status='won';s.auction.activeId=null;
+      if(lot.kind==='cauldron')s.alchemy.cauldrons=[...new Set([...s.alchemy.cauldrons,Number(lot.item)])].sort((a,b)=>a-b);
+      else s.inventory[lot.item]=(s.inventory[lot.item]||0)+lot.count;
+      s.auction.wins++;s.auction.spent+=price;
+      G.log(s,`落槌成交：「${info.name} ×${lot.count}」，成交价 ¥${price}。冻结款转为货款，${lot.kind==='cauldron'?'药鼎已收入收藏，可在长乐集切换使用':'拍品已放入行囊'}，不再重复扣款。`,'拍卖');
+    }
+  }
+  // 拍卖涉及已扣除的冻结款：遇到损坏的轮次必须拒绝读档，不能重置并吞钱/重发物品。
+  G.cleanAuction = (raw,s) => {
+    const validInt=(n,min,max)=>Number.isInteger(n)&&n>=min&&n<=max;
+    must(raw&&typeof raw==='object'&&!Array.isArray(raw),'拍卖存档缺失或损坏。');
+    must(validInt(raw.day,0,G.day(s))&&validInt(raw.realm,0,s.player.realm)&&Array.isArray(raw.lots),'拍卖场次无效。');
+    must(validInt(raw.wins,0,1e8)&&validInt(raw.spent,0,1e12),'拍卖累计记录无效。');
+    must(raw.lots.length===(raw.day?G.AUCTION.lotCount:0),'拍品数量无效。');
+    const lots=raw.lots.map((l,index)=>{
+      must(l&&l.id===`auction-${raw.day}-${index}`&&['material','pill','cauldron'].includes(l.kind),'拍品标识无效。');
+      must(validInt(l.count,l.kind==='material'?3:1,l.kind==='material'?5:l.kind==='pill'?2:1),'拍品数量超出范围。');
+      const info=G.auctionLotInfo(l);must(info&&info.realm<=raw.realm,'拍品不在该场次允许范围内。');
+      must(['ready','bidding','decision','won','lost'].includes(l.status)&&validInt(l.round,0,G.AUCTION.maxRivalSteps+2),'拍品状态无效。');
+      must(Array.isArray(l.rivals)&&l.rivals.length===G.AUCTION_BIDDERS.length,'竞价者记录无效。');
+      const rivals=l.rivals.map((r,i)=>{
+        must(r?.id===G.AUCTION_BIDDERS[i].id&&validInt((r.ceiling-info.opening)/info.step,0,G.AUCTION.maxRivalSteps),'竞价预算无效。');
+        return {id:r.id,ceiling:r.ceiling};
+      });
+      if(l.status==='ready')must(l.price===0&&l.held===0&&l.round===0&&l.leader===null,'待拍拍品包含非法出价。');
+      else{
+        must(l.round>=1&&validInt((l.price-info.opening)/info.step,0,G.AUCTION.maxRivalSteps+3),'拍卖报价无效。');
+        must(l.held===(l.status==='bidding'?l.price:0),'拍卖冻结款与报价不一致。');
+        if(['bidding','won'].includes(l.status))must(l.leader==='player','当前竞得者无效。');
+        else must(rivals.some(r=>r.id===l.leader&&r.ceiling>=l.price),'对手报价无效。');
+        if(l.status==='won')must(rivals.every(r=>r.ceiling<l.price+info.step),'落槌结果与竞价记录不一致。');
+      }
+      return {id:l.id,kind:l.kind,item:l.item,count:l.count,status:l.status,price:l.price,leader:l.leader,held:l.held,round:l.round,rivals};
+    });
+    const active=lots.filter(l=>['bidding','decision'].includes(l.status));
+    must(active.length<=1&&raw.activeId===(active[0]?.id||null),'拍卖当前轮次无效。');
+    must(raw.wins>=lots.filter(l=>l.status==='won').length&&raw.spent>=lots.filter(l=>l.status==='won').reduce((n,l)=>n+l.price,0),'拍卖结算记录缺失。');
+    return {day:raw.day,realm:raw.realm,lots,activeId:raw.activeId,wins:raw.wins,spent:raw.spent};
+  };
+  G.validateAuctionLinks = s => {
+    const lot=G.auctionLot(s,s.auction.activeId),a=s.activity,p=s.pending;
+    if(!lot){must(a?.kind!=='auction'&&p?.kind!=='auction','进行中的拍卖缺少对应拍品。');return;}
+    must(s.position===G.AUCTION.place,'进行中的拍卖不在拍卖场。');
+    const info=G.auctionLotInfo(lot);
+    if(lot.kind==='cauldron')must(s.alchemy.cauldrons.length>0&&!s.alchemy.cauldrons.includes(Number(lot.item)),'待结算药鼎所有权不一致。');
+    else must((s.inventory[lot.item]||0)+lot.count<=9999,'待结算拍品超出行囊容量。');
+    must(info.realm<=s.player.realm,'进行中的拍卖境界不符。');
+    if(lot.status==='bidding'){
+      must(a?.kind==='auction'&&a.params.day===s.auction.day&&a.params.lotId===lot.id&&a.params.round===lot.round,'冻结款缺少对应竞价行动。');
+      must(a.phase==='work'&&a.startedAt>=(s.auction.day-1)*1440+G.AUCTION.opens&&a.startedAt+G.AUCTION.roundMinutes<=G.auctionCloseAt(s)+EPS,'拍卖行动时间无效。');
+      must(Math.abs(a.startedAt+a.elapsed-s.minutes)<1e-6,'拍卖进度与游戏时间不一致。');
+    }else{
+      must(p?.kind==='auction'&&p.auction.day===s.auction.day&&p.auction.lotId===lot.id&&p.auction.round===lot.round,'拍卖缺少待选轮次。');
+      must(s.minutes+G.AUCTION.roundMinutes<=G.auctionCloseAt(s)+EPS,'拍卖选择已经过期。');
+    }
   };
   G.nextQuest = s => G.QUESTS.find(q=>!s.claimed.includes(q.id));
   G.questVisible = (s,q) => !!q&&(s.claimed.includes(q.id)||G.nextQuest(s)?.id===q.id);
@@ -272,7 +417,7 @@
     const caps = G.limits(s);
     for (const key of ['health','stamina','mana']) s.player[key] = clamp(s.player[key],0,caps[key]);
     for (const key of ['insight','constitution','agility','luck']) s.player[key] = clamp(s.player[key],1,99);
-    s.player.money = clamp(Math.round(s.player.money),0,9999999); s.player.coins = clamp(Math.round(s.player.coins),0,999999);
+    s.player.money = clamp(Math.round(s.player.money),0,9999999-G.auctionHeld(s)); s.player.coins = clamp(Math.round(s.player.coins),0,999999);
     s.player.qi = clamp(s.player.qi,0,999999); s.player.rep = clamp(s.player.rep,-50,100); s.player.karma = clamp(s.player.karma,-50,100);
     s.vehicle.battery = clamp(s.vehicle.battery,0,caps.battery); s.vehicle.durability = clamp(s.vehicle.durability,0,caps.durability);
     for (const bond of Object.values(s.bonds)) {bond.affinity=clamp(bond.affinity,0,100);bond.trust=clamp(bond.trust,0,100);}
@@ -322,6 +467,7 @@
   G.upgradeCost = (s, kind) => 90 + (s.vehicle.levels[kind]||0)*85;
   G.questReady = (s,q) => s.stats.delivered>=q.delivery && s.player.realm>=q.realm;
   G.choiceBlock = (s,c) => {
+    if(s.pending?.kind==='auction')return c.auctionRaise===0?'':G.auctionBidBlock(s,G.auctionLot(s,s.pending.auction.lotId),c.auctionRaise);
     if (c.minTrust && s.pending?.npcId && s.bonds[s.pending.npcId].trust<c.minTrust) return `需要信任 ${c.minTrust}。`;
     return G.effectBlock(s,c.effects,c.itemCost);
   };
@@ -333,7 +479,7 @@
     {id:'friendship',ready:s.stats.delivered>=25&&Object.values(s.bonds).filter(b=>b.stage>=4).length>=3,requirement:'25 单 · 完成至少三位朋友的故事'}
   ];
   const instantWhileBusy = new Set(['buy','sign','claim','stop']);
-  G.canStop = s => !!s.activity && !['choice','rescue'].includes(s.activity.kind);
+  G.canStop = s => !!s.activity && !['choice','rescue','auction'].includes(s.activity.kind);
   function locate(s,p){
     s.location=point(p);
     s.position=G.PLACES.find(n=>distance(n,p)<EPS)?.id||null;
@@ -348,7 +494,7 @@
     return point(route.points.at(-1));
   };
   const workDuration = (kind,p={}) => ({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:G.CHARGE.minutes,repair:30,upgrade:45,heal:30,meal:20,rescue:180,
-    cultivate:p.kind==='meditate'?90:p.kind==='body'?30:45,alchemy:G.alchemyRecipe(p.recipe)?.duration||0,choice:p.duration||0})[kind]||0;
+    auction:G.AUCTION.roundMinutes,cultivate:p.kind==='meditate'?90:p.kind==='body'?30:45,alchemy:G.alchemyRecipe(p.recipe)?.duration||0,choice:p.duration||0})[kind]||0;
   function startWork(s,a){
     a.phase='work';a.elapsed=0;a.recovery={};
     const cap=G.limits(s);
@@ -458,6 +604,7 @@
       }
       case 'heal':G.log(s,'医馆治疗完成，气血已恢复。','生活');break;
       case 'meal':G.log(s,'吃完一碗热面，体力与气血已逐步恢复。','生活');break;
+      case 'auction':finishAuctionBid(s,a);break;
       case 'choice':finishChoice(s,a.params.event,a.params.index);break;
       case 'rescue':{
         const fee=Math.min(60,s.player.money);s.player.money-=fee;s.player.health=45;s.player.stamina=Math.max(35,s.player.stamina);
@@ -474,7 +621,7 @@
   function beginRescue(s){
     begin(s,'rescue',{},'clinic');G.log(s,'你倒在路边。路人正沿道路将你送往医馆，随后需要治疗三小时。','救助');
   }
-  G.activityLabel = a => ({travel:'赶路',deliver:'配送',moveHome:'搬家',sleep:'睡眠',visit:'交谈',rest:'休息',cultivate:'修炼',breakthrough:'突破',alchemy:'炼药',explore:'探索',charge:'充电',repair:'维修',upgrade:'升级座驾',heal:'治疗',meal:'用餐',choice:'处理事件',rescue:'救助'})[a?.kind]||'原地停留';
+  G.activityLabel = a => ({travel:'赶路',deliver:'配送',moveHome:'搬家',sleep:'睡眠',visit:'交谈',rest:'休息',cultivate:'修炼',breakthrough:'突破',alchemy:'炼药',explore:'探索',charge:'充电',repair:'维修',upgrade:'升级座驾',heal:'治疗',meal:'用餐',choice:'处理事件',rescue:'救助',auction:'拍卖竞价'})[a?.kind]||'原地停留';
   G.activityRemaining = s => {
     const a=s.activity;if(!a)return 0;
     return a.phase==='travel'?(a.route.meters-a.travelled)/(a.kind==='rescue'?500:G.movementRates(s).metersPerMinute)+a.duration:Math.max(0,a.duration-a.elapsed);
@@ -598,6 +745,15 @@
           must(s.activeOrder,'没有待配送的订单。');G.log(s,`取消「${s.activeOrder.title}」，不发放报酬。`,'配送');s.activeOrder=null;break;
         case 'choose':{
           must(s.pending&&payload.eventId===s.pending.id,'这次事件已经处理，请勿重复结算。');
+          if(s.pending.kind==='auction'){
+            must(Number.isInteger(payload.index)&&payload.index>=0&&payload.index<=2,'竞拍选项不存在。');
+            const p=s.pending,lot=G.auctionLot(s,p.auction.lotId);
+            must(lot?.status==='decision'&&p.auction.day===s.auction.day&&p.auction.round===lot.round,'这轮竞价已经处理。');
+            s.pending=null;
+            if(payload.index===2){lot.status='lost';s.auction.activeId=null;G.log(s,`你放弃「${G.auctionLotInfo(lot).name}」，不收取费用，保留已返还的现金。`,'拍卖');markComplete(s,'auction');}
+            else startAuctionBid(s,lot,payload.index===0?1:3);
+            break;
+          }
           const c=s.pending.choices[payload.index];must(c,'选项不存在。');const block=G.choiceBlock(s,c);must(!block,block);
           const p=s.pending,cost=Object.fromEntries(Object.entries(c.effects||{}).filter(([k,v])=>v<0&&['money','coins','stamina','mana'].includes(k)));
           effects(s,cost,p.npcId,c.itemCost);s.pending=null;
@@ -638,7 +794,9 @@
         case 'heal':must(s.position==='clinic','请先前往回春医馆。');must(s.player.health<G.limits(s).health,'气血已满。');effects(s,{money:-25});begin(s,'heal');G.log(s,'开始治疗，现金 -¥25。','生活');break;
         case 'meal':must(s.position==='market','请先前往长乐集。');effects(s,{money:-12});begin(s,'meal');G.log(s,'开始用餐，现金 -¥12。','生活');break;
         case 'buy': {
-          const item=G.ITEMS.find(i=>i.id===payload.id);must(item&&item.shop!==false,'这件物品不能通过系统直接兑换。');must(!item.unique||(!s.learned.includes(item.id)&&!s.equipment.includes(item.id)),'已经拥有，不能重复兑换。');must(s.player.coins>=item.cost,'外卖币不足，请先完成配送。');s.player.coins-=item.cost;
+          const item=G.ITEMS.find(i=>i.id===payload.id);must(item&&item.shop!==false,'这件物品不能通过系统直接兑换。');must(!item.unique||(!s.learned.includes(item.id)&&!s.equipment.includes(item.id)),'已经拥有，不能重复兑换。');must(s.player.coins>=item.cost,'外卖币不足，请先完成配送。');
+          const reserved=s.auction.lots.filter(l=>l.status==='bidding'&&l.item===item.id&&l.kind!=='cauldron').reduce((n,l)=>n+l.count,0);
+          must(!reserved||(s.inventory[item.id]||0)+reserved+1<=9999,'行囊容量已为竞拍中的物品预留。');s.player.coins-=item.cost;
           if(item.type==='technique')s.learned.push(item.id);else if(item.type==='equipment')s.equipment.push(item.id);else s.inventory[item.id]=(s.inventory[item.id]||0)+1;
           G.log(s,`系统兑换：${item.name}，外卖币 -${item.cost}。即时到账，不消耗游戏时间。`,'系统');break;
         }
@@ -653,6 +811,10 @@
           if(payload.id==='daily'){must(!s.daily.claimed,'每日奖励已经领取。');must(s.daily.delivered>=3,'今天需要完成 3 单。');s.daily.claimed=true;effects(s,{coins:5,money:30,qi:10});G.log(s,'每日委托完成。外卖币 +5，现金 +¥30，修为 +10。','系统');}
           else{const q=G.QUESTS.find(q=>q.id===payload.id);must(q,'委托不存在。');must(!s.claimed.includes(q.id),'奖励已经领取。');must(G.questVisible(s,q),'请先领取前一篇章奖励。');must(G.questReady(s,q),'委托条件尚未达成。');s.claimed.push(q.id);effects(s,q.reward);G.log(s,`「${q.title}」：${q.story} 奖励：${G.effectText(q.reward)}。`,'主线');}break;
         }
+        case 'auctionCatalog':
+          must(s.position===G.AUCTION.place,'请先到长乐集的万宝拍卖场。');prepareAuction(s);break;
+        case 'auctionBid':
+          startAuctionBid(s,G.auctionLot(s,payload.id),payload.raise??1);break;
         case 'cauldron': {
           must(s.position==='market','请先前往长乐集购买或更换药鼎。');
           const owned=Array.isArray(s.alchemy.cauldrons)?s.alchemy.cauldrons:(s.alchemy.cauldron?[s.alchemy.cauldron]:[]);

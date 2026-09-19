@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v10';
-  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v9';
-  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v8','night-courier:saves:v7','night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
+  G.STORAGE_KEY = 'night-courier:saves:v11';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v10';
+  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v9','night-courier:saves:v8','night-courier:saves:v7','night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -21,6 +21,13 @@
   }
   function cleanPending(p,s){
     if(!obj(p))throw new Error('待处理事件已损坏。');
+    if(p.kind==='auction'||p.templateId==='auction-bid'){
+      const lot=G.auctionLot(s,p.auction?.lotId);
+      if(!lot||lot.status!=='decision'||p.auction.day!==s.auction.day||p.auction.round!==lot.round)throw new Error('拍卖待选轮次无效。');
+      const clean=G.auctionDecision(s,lot);
+      if(p.id!==clean.id)throw new Error('拍卖事件标识与轮次不一致。');
+      return clean; // 丢弃任何外来 effects / AI 文本；从当前拍品重建三个固定操作。
+    }
       let base;
       const npc=G.NPCS.find(n=>n.id===p.npcId);
       if(npc)s.bonds[npc.id].met=true;
@@ -35,7 +42,7 @@
   }
 
   function cleanActivity(raw,s,version=G.VERSION){
-    const kinds=['travel','deliver','moveHome','sleep','visit','rest','cultivate','breakthrough','alchemy','explore','charge','repair','upgrade','heal','meal','choice','rescue'];
+    const kinds=['travel','deliver','moveHome','sleep','visit','rest','cultivate','breakthrough','alchemy','explore','charge','repair','upgrade','heal','meal','choice','rescue','auction'];
     if(!obj(raw)||!kinds.includes(raw.kind)||!['travel','work'].includes(raw.phase))throw new Error('进行中的行动格式无效。');
     const kind=raw.kind,p=obj(raw.params)?raw.params:{},params={};
     let duration=({rest:60,sleep:480,visit:20,breakthrough:60,explore:30,charge:G.CHARGE.minutes,repair:30,upgrade:45,heal:30,meal:20,rescue:180})[kind]||0;
@@ -63,7 +70,15 @@
       params.realm=p.realm;params.realmLevel=level;params.need=num(p.need,expected,1,999999,false);params.chance=num(p.chance,53,35,95,false);
       if(version>=7&&Math.abs(params.need-G.realmNeed(s))>1e-8)throw new Error('突破投入与当前小境界不一致。');
     }
+    if(kind==='auction'){
+      const lot=G.auctionLot(s,p.lotId);
+      if(!lot||lot.status!=='bidding'||p.day!==s.auction.day||p.round!==lot.round||raw.phase!=='work'||raw.target||raw.route)throw new Error('拍卖行动与冻结款不一致。');
+      if(raw.duration!==G.AUCTION.roundMinutes||!Number.isFinite(raw.elapsed)||raw.elapsed<0||raw.elapsed>raw.duration||!Number.isFinite(raw.startedAt))throw new Error('拍卖行动进度无效。');
+      if(Object.keys(raw.recovery||{}).length||raw.gainedQi)throw new Error('竞拍行动不能携带额外恢复或修为。');
+      params.day=p.day;params.lotId=p.lotId;params.round=p.round;duration=G.AUCTION.roundMinutes;
+    }
     if(kind==='choice'){
+      if(p.event?.kind==='auction')throw new Error('拍卖必须使用独立竞价行动。');
       params.event=cleanPending(p.event,s);
       if(!Number.isInteger(p.index)||!params.event.choices[p.index])throw new Error('正在执行的事件选项无效。');
       params.index=p.index;duration=params.event.choices[p.index].duration||0;params.duration=duration;
@@ -106,7 +121,7 @@
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3,4,5,6,7,8,9,10].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4,5,6,7,8,9,10,11].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
@@ -165,6 +180,7 @@
     if(!s.orders.length&&version<5)G.refreshOrders(s);
     s.lastRoute=null;
     if(obj(raw.lastRoute)&&G.place(raw.lastRoute.from)&&G.place(raw.lastRoute.to))s.lastRoute=G.route(raw.lastRoute.from,raw.lastRoute.to);
+    s.auction=version>=11?G.cleanAuction(raw.auction,s):G.emptyAuction();
     s.pending=raw.pending?cleanPending(raw.pending,s):null;
     s.activeOrder=version>=5&&raw.activeOrder?cleanTicket(raw.activeOrder,s):null;
     if(s.activeOrder){
@@ -173,9 +189,10 @@
     }
     s.activity=version>=5&&raw.activity?cleanActivity(raw.activity,s,version):null;
     if(s.pending&&s.activity)throw new Error('待选事件与进行中行动不能同时存在。');
+    G.validateAuctionLinks(s);
     G.restoreFeatureUnlocks(s,raw,version);
     s.schemaVersion=G.VERSION;
-    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}：既有地图、连续时间、九重境界与丹方所有权继续保留；玩法入口按已完成经历、已有物品与在途行动恢复，不重复扣费或结算。`,'存档');
+    if(version<G.VERSION)G.log(s,`存档已从重建版 v${version} 结构升级至 v${G.VERSION}：既有地图、连续时间、九重境界与丹方所有权继续保留；玩法入口按已完成经历、已有物品与在途行动恢复，不重复扣费或结算；拍卖记录独立初始化，冻结款与轮次成对恢复。`,'存档');
     return s;
   };
   G.parseImport = text => {
