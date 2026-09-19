@@ -29,3 +29,9 @@
 .auction-lot>.row{flex-wrap:wrap;gap:10px}.auction-lot h3{overflow-wrap:anywhere}
 .auction-lot .detail-list{margin:12px 0}.auction-bid-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 @media(max-width:420px){.auction-bid-controls{grid-template-columns:1fr}.auction-bid-controls .btn{min-height:44px}}
+
+/* 当前事件的单次结算回执，不作为另一份历史日志。 */
+.event-result h3{overflow-wrap:anywhere}.result-selection{margin:12px 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.result-text{margin:16px 0 22px;white-space:pre-wrap;overflow-wrap:anywhere}.result-changes{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 18px}
+.result-change{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--mint)}.result-change.cost{color:var(--danger)}
+.result-delivery{padding-top:16px;margin:18px 0;border-top:1px solid var(--line)}.event-result>.btn{margin-top:14px;min-height:44px}

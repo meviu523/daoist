@@ -36,6 +36,22 @@
                                 只替换未结算事件内容
 ```
 
+## 选择后结果与配送扩充（1.9.0）
+
+剧情交互现在分为「待选 → 执行（有耗时才出现）→ 已结算结果 → 确认继续」。结果页是当前事件的一次性回执，不是第二份历史列表；行为与事件历史仍只保存在右下角日志。界面展示事件标题、所选行动、该选项的结果文本、实际数值变化，以及单独列出的配送结算。探索、修炼、人物章节和主线选择共用这一流程；拍卖出价继续使用专用轮次及图录结果，不把竞价当作普通剧情选择。
+
+`finishChoice` 是 `eventResult` 的唯一创建点。零时长选择在同一事务中结算，耗时选择由 `G.advance` 到达真正完成节点后生成回执，不能提前发奖或解锁地点。选择的资源变化与 `settleDelivery` 的到账变化分别从规范化后的真实状态差计算；扣费/物品成本由已提交选项重建，不跨整个耗时区间做差，因此同刻房租或途中即时兑换不冒充选择成本。数值上限以实际变化为准。回执没有可执行效果、重放选项或奖励票据。
+
+v14 新增独立的 `eventResult`，字段为 `id/title/choice/text/source/at/duration/changes/delivery`；`changes` 为已发生的 `{key,delta}`，只允许角色可展示属性、白名单消耗品和已定义人物好感/信任。`delivery` 只包含订单标题、已解锁目标与实际变化。`cleanEventResult` 限制文本、时间、数量、键和值，拒绝损坏记录或与未交付订单/其他活动冲突，丢弃注入的 effects/reward。唯一允许同时存在的活动是尚未推进的救助；确认按钮不能被通用“活动进行中”规则禁用。
+
+`G.advance` 以及时钟事件暂停都在有结果时冻结。`ackResult` 必须匹配结果ID，只清除回执并增加 revision，不扣费、不发奖、不增加 turn、不抽随机数、不刷新订单、不执行完成钩子；重复或过期确认及其他游戏指令原子拒绝。读档默认手动暂停，阅读时消耗的墙钟时间不会补算。结果优先于地图、快捷面板和下一段剧情，Esc/遮罩不能跳过确认。
+
+完成选择时，原有 `markComplete` 仍可排入一个主线 `pending`；结果与下一段主线分开保存，先展示结果，确认后才显示主线，防止第三单等里程碑覆盖刚选的结局。AI不会在结果阅读期间启动新请求，迟到回复不能覆盖已结算内容。故事标记和丹方奖励仍按真实完成条件判断，不把“已注入”当成已完成。
+
+v1–v13 迁移新增空结果，不从旧日志补造回执或重发奖励。旧待选事件、旧耗时选项继续按原进度执行，完成后才进入新流程。存储键升为 `night-courier:saves:v14`，缺少新键才依次迁移 v13 至 v3，原文保留，多档相互独立。
+
+配送内置事件新增39个，总计60个/180个选择。新增日常配送、邻里互助、夜班生活、骑手协作和都市修仙奇遇；每项有不同的结果文本与规则效果，每个事件至少有一个无支付障碍选择。既有21个事件、人物、主线和订单模板保留；`G.EVENTS` 总计79项（配送60、探索8、修炼6、主线5），人物四章另计。保持原有触发概率与近期去重，不增加按帧随机、不改地图或订单经济。
+
 ## 规则引擎与事务边界
 
 `G.perform(original, action, payload)` 先复制状态并校验。失败返回原对象和中文原因；成功只提交即时事务或开始持续行动。世界内时间只由 `G.advance(original, gameMinutes)` 推进，界面不直接写位置、余额、时间或奖励。两个接口均不修改传入状态。
@@ -181,7 +197,7 @@
 
 ```js
 {
-  schemaVersion: 13,
+  schemaVersion: 14,
   id, name, mode, createdAt, updatedAt, seed,
   turn, revision, minutes, position, location, residenceId, gameOver, transport, weather,
   activity, activeOrder, orderRefreshAt,
@@ -192,12 +208,12 @@
   auction: { day, realm, lots, activeId, wins, spent },
   inventory, learned, equipment, stats,
   bonds: { /* 每人 met, affinity, trust, stage, path, lastTalkDay */ },
-  daily, claimed, unlockedFeatures, unlockedEndings, ending,
-  flags, recentEvents, pending, orders, logs, lastRoute
+  daily, claimed, unlockedFeatures, unlockedPlaces, unlockedEndings, ending,
+  flags, recentEvents, pending, eventResult, orders, logs, lastRoute
 }
 ```
 
-存储键：`night-courier:saves:v13`；仅在新键不存在时从 v12、v11、v10、v9、v8、v7、v6、v5、v4、v3 旧键显式迁移（新键的空列表不是缺失，不复活已删除存档）；上一写入备份键：`night-courier:saves:backup`。列表最多12份；每份日志最多180条，防止无界增长。
+存储键：`night-courier:saves:v14`；仅在新键不存在时从 v13、v12、v11、v10、v9、v8、v7、v6、v5、v4、v3 旧键显式迁移（新键的空列表不是缺失，不复活已删除存档）；上一写入备份键：`night-courier:saves:backup`。列表最多12份；每份日志最多180条，防止无界增长。
 
 `sanitizeSave()` 不把任意原始对象合并进状态，按字段白名单重建，规范数值范围，并校验人物进度、住处、破产结束状态、事件模板及待结算票据。v1–v6 只有识别到的重建字段迁移，不对未知原游戏做猜测。进行中行动按类型白名单恢复；重建合法路线，并校验当前坐标与路程一致、当地服务位置和待结算票据互斥。时间、资源、路程保留小数，不重复收取已支付成本。
 

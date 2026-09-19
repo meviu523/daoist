@@ -177,10 +177,10 @@ test('旧凡人小重抵扣保留旧版修行入口，但不提前开放现代�
   assert.ok(G.featureUnlocked(a,'cultivation'));assert.ok(G.featureUnlocked(a,'practice'));
   assert.equal(G.featureUnlocked(G.newGame('新旅程'),'practice'),false);
 });
-test('v12本地键迁至v13保留原文，多档独立，新键为空不复活旧记录',()=>{
+test('v12本地键迁至v14保留原文，多档独立，新键为空不复活旧记录',()=>{
   const a=oldMortal(9),b=oldMortal(2);const original=JSON.stringify({schemaVersion:12,saves:[a,b]});
   const values=new Map([['night-courier:saves:v12',original]]),storage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,String(v))};
-  const store=G.createStore(storage),saves=store.load();assert.equal(G.STORAGE_KEY,'night-courier:saves:v13');
+  const store=G.createStore(storage),saves=store.load();assert.equal(G.STORAGE_KEY,'night-courier:saves:v14');
   assert.equal(values.get('night-courier:saves:v12'),original);assert.deepEqual(saves.map(s=>s.player.mortalProgress),[68,5]);
   assert.deepEqual(G.createStore(storage).load().map(s=>s.player.mortalProgress),[68,5]);
   values.set(G.STORAGE_KEY,JSON.stringify({schemaVersion:13,saves:[]}));assert.deepEqual(G.createStore(storage).load(),[]);

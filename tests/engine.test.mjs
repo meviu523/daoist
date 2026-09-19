@@ -11,7 +11,7 @@ const fresh=(mode='classic',seed=987654321)=>Object.assign(G.newGame('云行',mo
 // settlement entry point exists in production or tests.
 const complete=s=>{for(let i=0;s.activity&&!s.pending&&!s.gameOver&&i<5000;i++)s=G.advance(s,Math.max(1e-7,Math.min(1,G.activityRemaining(s))));assert.ok(!s.activity||s.gameOver,'行动应当完成');return s;};
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-5,`${a} ≠ ${b}`);
-const run=(s,action,p={})=>{const r=G.perform(s,action,p);assert.ok(r.ok,r.error);return complete(r.state);};
+const run=(s,action,p={})=>{if(s.eventResult&&action!=='ackResult'){const ack=G.perform(s,'ackResult',{id:s.eventResult.id});assert.ok(ack.ok,ack.error);s=ack.state;}const r=G.perform(s,action,p);assert.ok(r.ok,r.error);return complete(r.state);};
 const rich=()=>{const s=fresh();s.player.money=10000;s.player.coins=10000;return s;};
 const stockRecipe=(s,recipe,count=10)=>{for(const id of Object.keys(G.alchemyMaterials(recipe)))s.inventory[id]=count;return s;};
 const ownFormula=(s,recipe)=>{if(!s.alchemy.formulas.includes(recipe.id))s.alchemy.formulas.push(recipe.id);return s;};
