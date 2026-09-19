@@ -283,7 +283,7 @@ with sync_playwright() as p:
     ctx, craft, cerrors = setup(browser, 1200, 900)
     new_game(craft, '药童')
     craft.click('[data-ui="home"]')
-    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0];s.player.money=1000;s.inventory.herb=10;s.player.mana=60;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
+    craft.evaluate('''()=>{const k=NightCourier.STORAGE_KEY,x=JSON.parse(localStorage.getItem(k)),s=x.saves[0],r=NightCourier.alchemyRecipe('heal');s.player.money=1000;s.player.mana=60;for(const id of Object.keys(NightCourier.alchemyMaterials(r)))s.inventory[id]=10;localStorage.setItem(k,JSON.stringify(x));window.dispatchEvent(new StorageEvent('storage',{key:k}));}''')
     craft.locator('[data-ui="load"]').first.click()
     assert current(craft)['player']['money'] == 1000
     craft.locator('[data-place="market"]').focus();craft.keyboard.press('Enter')
@@ -298,13 +298,18 @@ with sync_playwright() as p:
     assert stored(craft)['alchemy']['cauldron'] == 1
     assert stored(craft)['player']['money'] == 840
     assert craft.locator('[data-act="alchemy"][data-recipe="heal"]').is_enabled()
-    assert not craft.locator('[data-act="alchemy"][data-recipe="qi"]').is_enabled()
+    recipe_cost = craft.evaluate("NightCourier.alchemyMaterials(NightCourier.alchemyRecipe('heal'))")
+    before_materials = {k: current(craft)['inventory'].get(k, 0) for k in recipe_cost}
     craft.click('[data-act="alchemy"][data-recipe="heal"]')
     craft.select_option('#time-speed', '10');pump(craft, 2200)
     brewed = current(craft)
     assert brewed['alchemy']['brews'] == 1 and brewed['alchemy']['xp'] >= 1
-    assert brewed['inventory']['herb'] == 9
-    record('炼药师可实际前往长乐集购鼎，开炉消耗材料并积累熟练度')
+    for material_id, amount in recipe_cost.items():
+        assert brewed['inventory'][material_id] == before_materials[material_id] - amount
+    assert craft.evaluate("NightCourier.ALCHEMY_MATERIALS.length") == 64
+    assert craft.evaluate("NightCourier.ALCHEMY_RECIPES.length") == 108
+    assert craft.evaluate("NightCourier.CAULDRONS.length - 1") == 24
+    record('炼药师可购买九阶药鼎、按丹方扣除多种药材，并保留64药材/108丹方/24药鼎数据')
     assert not cerrors, cerrors
     ctx.close()
 
