@@ -72,7 +72,7 @@
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
       daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], unlockedFeatures: [], unlockedPlaces: [...G.STARTING_PLACES], ending: null,
-      flags: {firstOrder:false}, recentEvents: [], pending: null, orders: [], logs: [], lastRoute: null,
+      flags: {firstOrder:false}, recentEvents: [], pending: null, eventResult: null, orders: [], logs: [], lastRoute: null,
       location: null, activity: null, activeOrder: null, orderRefreshAt: 495, revision: 0
     };
     G.log(s, `你在青藤小屋醒来。白天送达一份热饭，入夜寻一条自己的仙途。${mode === 'ai' ? '本存档使用 AI 剧情；接口不可用时采用经典事件。' : '本存档使用经典剧情。'}`, '启程');
@@ -556,14 +556,41 @@
     G.afterWorldAction?.(s,kind);
     G.syncFeatureUnlocks(s);
   }
+  // Only settlement code creates receipts. A receipt cannot be replayed as effects.
+  G.eventResultLabel = key => {
+    const [kind,id,field]=String(key).split('.');
+    if(kind==='player'&&Object.hasOwn(G.effectNames,id)&&!['fragments','herb','affinity','trust'].includes(id))return G.effectNames[id];
+    if(kind==='item')return G.ITEMS.find(i=>i.id===id)?.name||null;
+    if(kind==='bond'&&['affinity','trust'].includes(field)){const npc=G.NPCS.find(n=>n.id===id);return npc?`${npc.name} · ${G.effectNames[field]}`:null;}
+    return null;
+  };
+  function resultValues(s){
+    const values={};
+    for(const key of Object.keys(G.effectNames))if(Object.hasOwn(s.player,key))values[`player.${key}`]=s.player[key];
+    for(const item of G.ITEMS)if(!item.unique)values[`item.${item.id}`]=s.inventory[item.id]||0;
+    for(const npc of G.NPCS)for(const key of ['affinity','trust'])values[`bond.${npc.id}.${key}`]=s.bonds[npc.id][key];
+    return values;
+  }
+  function resultChanges(before,after,paid={}){
+    return Object.entries(after).map(([key,value])=>({key,delta:Math.round((value-(before[key]||0)+(paid[key]||0))*1e8)/1e8})).filter(x=>Math.abs(x.delta)>EPS);
+  }
   function finishChoice(s,p,index){
-    const c=p.choices[index];
+    const c=p.choices[index],before=resultValues(s),paid={};
+    // These exact, prevalidated costs were paid at commit time, including in old in-flight saves.
+    // Do not diff across elapsed time: rent or an unrelated instantaneous purchase is not a choice cost.
+    for(const [key,value] of Object.entries(c.effects||{}))if(value<0&&['money','coins','stamina','mana'].includes(key))paid[`player.${key}`]=value;
+    for(const [id,count] of Object.entries(c.itemCost||{}))paid[`item.${id}`]=(paid[`item.${id}`]||0)-count;
     // Spendable negative costs were paid once when the choice was committed.
     const result=Object.fromEntries(Object.entries(c.effects||{}).filter(([k,v])=>!(v<0&&['money','coins','stamina','mana'].includes(k))));
     effects(s,result,p.npcId);
     if(p.npcId){if(p.npcAdvance)s.bonds[p.npcId].stage++;if(c.path)s.bonds[p.npcId].path=c.path;}
     G.log(s,`${c.result}（${G.effectText(c.effects)}）`,p.npcId?'羁绊':p.source==='ai'?'AI 奇遇':'奇遇');
+    const changes=resultChanges(before,resultValues(s),paid),beforeDelivery=resultValues(s);
     if(p.delivery)settleDelivery(s,p.delivery);
+    normalize(s);
+    s.eventResult={id:`result-${p.id}`,title:p.title,choice:c.label,text:c.result,source:p.source==='ai'?'ai':'classic',
+      at:s.minutes,duration:c.duration||0,changes,
+      delivery:p.delivery?{title:p.delivery.title,target:p.delivery.target,changes:resultChanges(beforeDelivery,resultValues(s))}:null};
   }
   function finishVisit(s,id){
     const npc=G.NPCS.find(n=>n.id===id),bond=s.bonds[id];bond.lastTalkDay=G.day(s);
@@ -689,10 +716,10 @@
   // interval, so time spent reading (or waiting for AI) can never be caught up.
   G.advance = (original,minutes) => {
     must(Number.isFinite(minutes)&&minutes>=0&&minutes<=1440,'时间增量无效。');
-    if(!minutes||original.gameOver||original.pending||original.ending)return original;
+    if(!minutes||original.gameOver||original.pending||original.eventResult||original.ending)return original;
     const s=clone(original);let remaining=minutes;
     if(!Number.isFinite(s.orderRefreshAt)||s.orderRefreshAt<=s.minutes+EPS)s.orderRefreshAt=(Math.floor(s.minutes/15)+1)*15;
-    while(remaining>EPS&&!s.gameOver&&!s.pending&&!s.ending){
+    while(remaining>EPS&&!s.gameOver&&!s.pending&&!s.eventResult&&!s.ending){
       const a=s.activity,oldDay=G.day(s),now=s.minutes;
       if(a?.phase==='travel'&&a.route.meters-a.travelled<=EPS){arrive(s,a);continue;}
       if(a?.phase==='work'&&a.duration-a.elapsed<=EPS){finish(s,a);continue;}
@@ -742,6 +769,12 @@
     const s=clone(original);
     try{
       must(!s.gameOver,'这段旅程已经结束，请返回开始页创建新存档。');
+      if(action==='ackResult'){
+        must(s.eventResult&&payload.id===s.eventResult.id,'这个结果已经确认，请勿重复操作。');
+        s.eventResult=null;s.revision++;s.updatedAt=Date.now();
+        return {ok:true,state:s}; // No turn, RNG, logs, rewards, time or world completion hook.
+      }
+      must(!s.eventResult,'请先阅读并确认本次事件结果。');
       must(!s.pending||action==='choose','请先完成当前事件的选择。');
       must(!s.ending||action==='continue','请先选择继续游历，或返回开始页。');
       must(!s.activity||instantWhileBusy.has(action),'当前行动仍在进行，请先停止。');
@@ -783,6 +816,7 @@
             else startAuctionBid(s,lot,payload.index===0?1:3);
             break;
           }
+          must(Number.isInteger(payload.index)&&payload.index>=0&&payload.index<3,'选项不存在。');
           const c=s.pending.choices[payload.index];must(c,'选项不存在。');const block=G.choiceBlock(s,c);must(!block,block);
           const p=s.pending,cost=Object.fromEntries(Object.entries(c.effects||{}).filter(([k,v])=>v<0&&['money','coins','stamina','mana'].includes(k)));
           effects(s,cost,p.npcId,c.itemCost);s.pending=null;
@@ -894,13 +928,13 @@
     return {title:text(raw.title,40),text:text(raw.text,500),choices};
   };
   G.applyAIEvent = (original, eventId, raw) => {
-    if(!original.pending||original.pending.id!==eventId||original.pending.aiStatus!=='unrequested')return original;
+    if(original.eventResult||!original.pending||original.pending.id!==eventId||original.pending.aiStatus!=='unrequested')return original;
     const s=clone(original),clean=G.validateAIEvent(raw);
     if(!s.pending.npcId)for(const c of clean.choices){delete c.effects.affinity;delete c.effects.trust;}
     Object.assign(s.pending,clean,{source:'ai',aiStatus:'success'});s.updatedAt=Date.now();return s;
   };
   G.fallbackAI = (original,eventId,message) => {
-    if(!original.pending||original.pending.id!==eventId||original.pending.aiStatus!=='unrequested')return original;
+    if(original.eventResult||!original.pending||original.pending.id!==eventId||original.pending.aiStatus!=='unrequested')return original;
     const s=clone(original);s.pending.aiStatus='fallback';G.log(s,`AI 剧情未采用：${String(message).slice(0,120)}。本次使用经典事件，存档模式不变。`,'系统');return s;
   };
 })(globalThis);

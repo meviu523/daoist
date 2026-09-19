@@ -8,7 +8,7 @@ requestAnimationFrame. HTTP allowlist/CSP/AI proxy have independent Node tests.
 import json
 import os
 from pathlib import Path
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Error as BrowserError
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'artifacts'
@@ -48,6 +48,7 @@ for(const name of ['render','updatePosition']){
 }
 '''
 results = []
+reload_modes = []
 
 def record(name):
     results.append({'name': name, 'passed': True})
@@ -97,6 +98,7 @@ def fixture(page, edits, unlock_gameplay=True):
     # Isolated pre-existing gameplay regressions explicitly open feature gates.
     # The progressive flow below opts out and starts from a genuine new save.
     edits = dict(edits)
+    ack_result_ui(page)
     if unlock_gameplay:
         edits['unlockedFeatures'] = page.evaluate('NightCourier.FEATURE_UNLOCKS.map(f=>f.id)')
         edits['unlockedPlaces'] = page.evaluate('NightCourier.PLACES.map(p=>p.id)')
@@ -118,14 +120,20 @@ def finish_ui_activity(page):
     minutes = page.evaluate('NightCourier.activityRemaining(window.__live)')
     pump(page, int(minutes * 100 + 80))
 
+def ack_result_ui(page):
+    if current(page) and current(page).get('eventResult'):
+        page.click('[data-act="ackResult"]')
+
 def choose_ui(page):
     index = page.evaluate('window.__live.pending.choices.findIndex(c=>!NightCourier.choiceBlock(window.__live,c))')
     assert index >= 0
     page.click(f'[data-act="choose"][data-index="{index}"]')
     finish_ui_activity(page)
+    ack_result_ui(page)
 
 def settle_ui(page):
     for _ in range(12):
+        ack_result_ui(page)
         if not current(page)['pending']:
             return
         choose_ui(page)
@@ -497,12 +505,169 @@ def auction_browser_checks(browser):
         record(f'{width}px 新档不继承拍卖图录或导航，旧档保留拍品和默认暂停')
         ctx.close()
 
+def result_browser_checks(browser):
+    # Load the shipped offline file with real browser localStorage. Unlike the
+    # isolated UI fixtures, page.reload re-reads the bundle and saved receipt.
+    for width, height in [(1440, 1000), (390, 844), (320, 740)]:
+        ctx = browser.new_context(viewport={'width':width,'height':height}, has_touch=width<600)
+        page = ctx.new_page();page.set_default_timeout(7000)
+        errors=[];page.on('pageerror', lambda err: errors.append(str(err)))
+        native_reload=True
+        def boot(reload=False):
+            nonlocal page,native_reload
+            if native_reload:
+                try:
+                    if reload: page.reload(wait_until='domcontentloaded')
+                    else: page.goto((ROOT/'dist/index.html').as_uri(), wait_until='domcontentloaded')
+                except BrowserError as error:
+                    if reload or 'ERR_BLOCKED_BY_ADMINISTRATOR' not in str(error): raise
+                    # Some sandboxes disable *all* navigations, including file://.
+                    # Keep restoration covered without pretending this is a native reload.
+                    native_reload=False;page.close();page=ctx.new_page()
+            if not native_reload:
+                memory=[]
+                if reload:
+                    page.evaluate("window.dispatchEvent(new Event('pagehide'))")
+                    memory=page.evaluate('Array.from(window.__memory.entries())')
+                    page.close();page=ctx.new_page()
+                page.set_default_timeout(7000)
+                page.on('pageerror',lambda err:errors.append(str(err)))
+                page.evaluate('() => {'+BOOT+'}')
+                page.evaluate('(entries)=>window.__memory=new Map(entries)',memory)
+                page.set_content(HTML,wait_until='domcontentloaded')
+            page.evaluate('() => {'+CONTROL+'}')
+            page.wait_for_function('window.__clock != null')
+            page.evaluate('() => {'+CAPTURE+'}')
+        boot();reload_modes.append({'width':width,'mode':'native-file-reload' if native_reload else 'fresh-page-storage-fixture'})
+        print('Reload mode:',reload_modes[-1],flush=True)
+        new_game(page, '结果阅读')
+        nearest_ui_delivery(page)
+        before=current(page);event=before['pending']
+        page.click('[data-act="choose"][data-index="0"]')
+        receipt=current(page)['eventResult'];settled=stored(page)
+        assert receipt['text']==event['choices'][0]['result']
+        assert page.locator('.result-text').inner_text()==receipt['text']
+        assert event['choices'][0]['label'] in page.locator('.result-selection').inner_text()
+        assert page.locator('.result-delivery').count()==1
+        assert page.locator('[data-act="choose"]').count()==0
+        assert page.locator('[data-ui="close"]').count()==0
+        assert page.locator('[data-act="ackResult"]').evaluate('(e)=>e===document.activeElement')
+        pump(page, 30000);page.keyboard.press('Escape')
+        assert current(page)['minutes']==settled['minutes']
+        assert page.locator('#panel[open]').count()==1
+        assert page.locator('.event-result').evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        assert page.locator('[data-act="ackResult"]').bounding_box()['height']>=44
+        page.screenshot(path=str(OUT/f'event-result-{width}.png'))
+        record(f'{width}px 选择后展示剧情及独立配送结算；自动聚焦、Esc 不跳过、阅读暂停、布局无横向溢出')
+        boot(True);page.locator('[data-ui="load"]').first.click()
+        reloaded=current(page)
+        assert reloaded['eventResult']==receipt
+        assert reloaded['player']==settled['player']
+        assert reloaded['stats']==settled['stats']
+        assert reloaded['minutes']==settled['minutes']
+        assert page.locator('.result-text').inner_text()==receipt['text']
+        assert page.evaluate("window.__clock.reasons.has('manual')")
+        pump(page, 10000)
+        page.keyboard.press('Enter')
+        assert current(page)['eventResult'] is None
+        assert current(page)['player']==settled['player']
+        assert current(page)['stats']==settled['stats']
+        assert current(page)['minutes']==settled['minutes']
+        assert page.locator('#panel[open]').count()==0
+        again=current(page)
+        forged_button(page, {'act':'ackResult','id':receipt['id']})
+        forged_button(page, {'act':'choose','event':event['id'],'index':'0'})
+        assert current(page)==again
+        pump(page, 10000);assert current(page)['minutes']==settled['minutes']
+        boot(True);page.locator('[data-ui="load"]').first.click()
+        assert current(page)['eventResult'] is None
+        record(f'{width}px 重载保留未读结果且不重奖；Enter 确认、重复提交拒绝、已读状态保存、手动暂停保留')
+
+        # Seed a previously arrived order with an actual catalog event. Commit,
+        # elapsed work, reload and completion all go through the real UI/engine.
+        edits=page.evaluate('''()=>{const G=NightCourier,s=window.__live,e=G.EVENTS.find(e=>e.id==='delivery-spare-chopsticks');return {
+            flags:{...s.flags,firstOrder:true},position:'clinic',location:null,orders:[],activity:null,eventResult:null,
+            player:{...s.player,money:200,stamina:80},stats:{...s.stats,delivered:2},
+            pending:{...G.clone(e),id:'browser-timed',templateId:e.id,source:'classic',aiStatus:'skip',
+            delivery:{id:'browser-order',title:'送给邻居的热饭',target:'clinic',desc:'当面交付',condition:'ordinary',expiresAt:s.minutes+30,reward:30,coins:2,npc:'lin'}}};}''')
+        fixture(page,edits,unlock_gameplay=False)
+        before=current(page);page.click('[data-act="choose"][data-index="1"]')
+        assert current(page)['eventResult'] is None
+        assert current(page)['player']['money']==194
+        assert current(page)['stats']['delivered']==2
+        toggle(page);page.select_option('#time-speed','1');pump(page,1000)
+        assert 0<current(page)['activity']['elapsed']<3
+        # A browser reload triggers pagehide saving of a partially completed choice.
+        boot(True);page.locator('[data-ui="load"]').first.click()
+        assert current(page)['activity']['kind']=='choice'
+        assert current(page)['eventResult'] is None
+        assert current(page)['player']['money']==194
+        finish_ui_activity(page)
+        timed=current(page);receipt=timed['eventResult']
+        assert receipt['duration']==4
+        assert receipt['changes'][0]=={'key':'player.money','delta':-6}
+        assert timed['stats']['delivered']==3
+        assert timed['player']['money']==224
+        assert timed['pending']['templateId']=='story-street-vein'
+        assert page.locator('.result-text').inner_text()==receipt['text']
+        assert '4 个游戏分钟' in page.locator('.event-result').inner_text()
+        assert page.locator('[data-act="ackResult"]').inner_text()=='继续剧情'
+        boot(True);page.locator('[data-ui="load"]').first.click()
+        assert current(page)['eventResult']==receipt
+        assert current(page)['pending']['templateId']=='story-street-vein'
+        page.click('[data-act="ackResult"]')
+        assert page.locator('.choice').count()==3
+        assert current(page)['pending']['templateId']=='story-street-vein'
+        assert current(page)['stats']['delivered']==3
+        assert current(page)['player']['money']==224
+        page.click('[data-act="choose"][data-index="1"]')
+        assert current(page)['eventResult']['title']=='地图上多出来的一条线'
+        assert page.locator('.result-delivery').count()==0
+        page.click('[data-act="ackResult"]')
+        record(f'{width}px 耗时选择重载后继续、不重复扣费；三单结果先于主线，主线选择也有结果')
+
+        if width==320:
+            edits=page.evaluate('''()=>{const G=NightCourier,s=G.clone(window.__live),e=G.EVENTS.find(e=>e.id==='rain');
+              s.mode='ai';s.pending={...G.clone(e),id:'browser-ai-text',templateId:e.id,source:'classic',aiStatus:'unrequested'};
+              const text='<img src=x onerror="window.__injected=1">'+ '一段很长的结果'.repeat(24);
+              const ai=G.applyAIEvent(s,s.pending.id,{title:'结果里的文字',text:'认真读完再继续。',choices:[
+                {label:'阅读',result:text,effects:{qi:5}},{label:'停留',result:'你记下了这句话。',effects:{}},{label:'道别',result:'你重新上路。',effects:{}}]});
+              return {pending:ai.pending,mode:'ai'};}''')
+            fixture(page,edits,unlock_gameplay=False)
+            page.click('[data-act="choose"][data-index="0"]')
+            assert '<img' in page.locator('.result-text').inner_text()
+            assert page.locator('.result-text img').count()==0
+            assert page.evaluate('window.__injected===undefined')
+            assert page.locator('.event-result').evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
+            assert page.locator('[data-act="ackResult"]').is_enabled()
+            record('320px AI 长结果安全转义、自动换行，无脚本执行或按钮遮挡')
+            page.click('[data-act="ackResult"]')
+            edits=page.evaluate('''()=>{const G=NightCourier,s=G.clone(window.__live),e=G.EVENTS.find(e=>e.id==='rain');
+              s.player.health=1;s.pending={...G.clone(e),id:'browser-rescue',templateId:e.id,source:'classic',aiStatus:'unrequested'};
+              const ai=G.applyAIEvent(s,s.pending.id,{title:'紊乱的灵息',text:'灵息忽然紊乱。',choices:[
+                {label:'尝试',result:'你失去了力气，路人开始呼救。',effects:{health:-10}},
+                {label:'停下',result:'灵息平静了。',effects:{}},{label:'退后',result:'你避开了紊流。',effects:{}}]});
+              return {pending:ai.pending,player:ai.player,mode:'ai'};}''')
+            fixture(page,edits,unlock_gameplay=False)
+            page.click('[data-act="choose"][data-index="0"]')
+            assert current(page)['activity']['kind']=='rescue'
+            assert current(page)['eventResult'] is not None
+            assert page.locator('[data-act="ackResult"]').is_enabled()
+            t=current(page)['minutes'];pump(page,5000);assert current(page)['minutes']==t
+            page.click('[data-act="ackResult"]')
+            assert current(page)['eventResult'] is None
+            record('受伤救助与未读结果可共存，确认按钮可用，阅读后才继续救助')
+        assert not errors,errors
+        ctx.close()
+
 with sync_playwright() as p:
     executable = os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium')
     kwargs = {'headless': True}
     if Path(executable).exists():
         kwargs['executable_path'] = executable
     browser = p.chromium.launch(**kwargs)
+    result_browser_checks(browser)
     location_browser_checks(browser)
     auction_browser_checks(browser)
     progressive_browser_checks(browser)
@@ -611,6 +776,7 @@ with sync_playwright() as p:
     page.click('[data-act="choose"][data-index="0"]')
     assert stored(page)['stats']['delivered'] == 1
     record('停车仍计订单期限，继续配送后事件暂停，交付只结算一次')
+    ack_result_ui(page)
 
     # Running before opening a panel resumes after closing; rate controls affect time.
     page.select_option('#time-speed', '1')
@@ -787,6 +953,7 @@ with sync_playwright() as p:
     before = current(story)
     fixture(story, before)
     assert current(story)['alchemy']['formulas'] == before['alchemy']['formulas']
+    ack_result_ui(story)
     story.locator('.game-nav [data-panel="alchemy"]').click()
     assert '获取途径：剧情 · 地图上多出来的一条线' in story.locator('#panel').inner_text()
     assert not serrs, serrs
@@ -936,6 +1103,7 @@ with sync_playwright() as p:
     ai.click('[data-act="choose"][data-index="0"]')
     assert stored(ai)['pending'] is None
     record('AI 模拟成功返回受限事件，等待和阅读期间时间冻结')
+    ack_result_ui(ai)
     ai.evaluate('window.__aiDelay=1200')
     ai.locator('[data-place="park"]').focus();ai.keyboard.press('Enter')
     ai.click('[data-act="explore"]');pump(ai, 3200)
@@ -946,6 +1114,7 @@ with sync_playwright() as p:
     assert current(ai)['pending'] is None
     assert current(ai)['player'] == settled['player']
     record('提前选择经典选项后，迟到 AI 响应不覆盖状态或重复奖励')
+    ack_result_ui(ai)
     ai.evaluate('window.__aiDelay=0;window.__aiFail=true')
     ai.locator('[data-place="park"]').focus();ai.keyboard.press('Enter')
     ai.click('[data-act="explore"]');pump(ai, 3200)
@@ -991,6 +1160,6 @@ with sync_playwright() as p:
 
 (OUT/'browser-tests.json').write_text(json.dumps({
     'mode':'offline Chromium bundle; controlled GameClock timestamps plus real-rAF and background-heartbeat probes; mocked storage and AI',
-    'tests':results, 'passed':len(results), 'failed':0,
+    'tests':results, 'passed':len(results), 'failed':0, 'receipt_reload_modes':reload_modes,
 }, ensure_ascii=False, indent=2))
 print(f'{len(results)} browser checks passed.')

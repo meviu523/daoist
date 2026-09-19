@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
   const G = root.NightCourier;
-  G.STORAGE_KEY = 'night-courier:saves:v12';
-  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v11';
-  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v10','night-courier:saves:v9','night-courier:saves:v8','night-courier:saves:v7','night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
+  G.STORAGE_KEY = 'night-courier:saves:v13';
+  G.LEGACY_STORAGE_KEY = 'night-courier:saves:v12';
+  G.LEGACY_STORAGE_KEYS = [G.LEGACY_STORAGE_KEY,'night-courier:saves:v11','night-courier:saves:v10','night-courier:saves:v9','night-courier:saves:v8','night-courier:saves:v7','night-courier:saves:v6','night-courier:saves:v5','night-courier:saves:v4','night-courier:saves:v3'];
   G.BACKUP_KEY = 'night-courier:saves:backup';
   G.MAX_SAVES = 12;
   const obj = x => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -39,6 +39,31 @@
       if(p.delivery)clean.delivery=cleanTicket(p.delivery,s);
       if(s.mode==='classic')clean.aiStatus='skip';
     return clean;
+  }
+
+  function cleanEventResult(raw,s){
+    if(raw===null)return null;
+    const text=(value,max)=>{
+      if(typeof value!=='string'||!value.trim()||value.length>max)throw new Error('事件结果文本损坏。');
+      return value;
+    };
+    const changes=items=>{
+      if(!Array.isArray(items)||items.length>64)throw new Error('事件结果变化记录损坏。');
+      const seen=new Set();
+      return items.map(x=>{
+        if(!obj(x)||typeof x.key!=='string'||x.key.split('.').length!==(x.key.startsWith('bond.')?3:2)||!G.eventResultLabel(x.key)||seen.has(x.key)||!Number.isFinite(x.delta)||Math.abs(x.delta)>1e7||Math.abs(x.delta)<1e-8)throw new Error('事件结果变化记录无效。');
+        seen.add(x.key);return {key:x.key,delta:x.delta};
+      });
+    };
+    if(!obj(raw)||typeof raw.id!=='string'||!/^result-[a-zA-Z0-9_-]{1,120}$/.test(raw.id)||!['classic','ai'].includes(raw.source)||!Number.isFinite(raw.at)||raw.at<0||Math.abs(raw.at-s.minutes)>1e-6||!Number.isInteger(raw.duration)||raw.duration<0||raw.duration>1440)throw new Error('待确认事件结果已损坏。');
+    const result={id:raw.id,title:text(raw.title,100),choice:text(raw.choice,120),text:text(raw.text,600),source:raw.source,at:raw.at,duration:raw.duration,changes:changes(raw.changes),delivery:null};
+    if(raw.delivery!==null){
+      const d=raw.delivery;
+      if(!obj(d)||!G.placeUnlocked(s,d.target)||s.stats.delivered<1||s.position!==d.target)throw new Error('配送结果与已结算地点不一致。');
+      result.delivery={title:text(d.title,100),target:d.target,changes:changes(d.changes)};
+    }
+    // Never restore actions/effects/tickets from a receipt; only the display whitelist survives.
+    return result;
   }
 
   function cleanActivity(raw,s,version=G.VERSION){
@@ -121,7 +146,7 @@
   G.sanitizeSave = raw => {
     if(!obj(raw)||!obj(raw.player))throw new Error('不是可识别的游戏存档。');
     const version=raw.schemaVersion??raw.version;
-    if(![1,2,3,4,5,6,7,8,9,10,11,12].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
+    if(![1,2,3,4,5,6,7,8,9,10,11,12,13].includes(version))throw new Error('存档版本未知或高于本程序。原仓库未知格式不能保证兼容。');
     const name=str(raw.name??raw.player.name,'无名行者',64).trim();
     const mode=['classic','ai'].includes(raw.mode)?raw.mode:'classic';
     const s=G.newGame([...name].slice(0,16).join('')||'无名行者',mode,raw.seed||1);
@@ -208,6 +233,9 @@
     }
     if((s.auction.activeId||s.auction.lots.length)&&!G.placeUnlocked(s,'market'))throw new Error('拍卖记录缺少长乐集地点权限。');
     if(s.pending&&s.activity)throw new Error('待选事件与进行中行动不能同时存在。');
+    if(version>=13&&!Object.hasOwn(raw,'eventResult'))throw new Error('存档缺少事件结果状态。');
+    s.eventResult=version>=13?cleanEventResult(raw.eventResult,s):null;
+    if(s.eventResult&&(s.activeOrder||(s.activity&&s.activity.kind!=='rescue')))throw new Error('事件结果与未完成行动冲突。');
     G.validateAuctionLinks(s);
     G.restoreFeatureUnlocks(s,raw,version);
     s.schemaVersion=G.VERSION;
