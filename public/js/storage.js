@@ -197,6 +197,8 @@
       if(!Array.isArray(raw.unlockedPlaces)||raw.unlockedPlaces.length>G.PLACES.length||raw.unlockedPlaces.some(id=>typeof id!=='string'||!G.place(id)))throw new Error('地点解锁记录损坏。');
       s.unlockedPlaces=[...new Set(raw.unlockedPlaces)];
       if(!s.unlockedPlaces.includes('home')||!G.placeUnlocked(s,G.currentResidence(s).place))throw new Error('当前住处缺少地点解锁记录。');
+      // 1.7.1 将修车点改为初始地点；旧 v12 补齐例外，不发发现奖励或开放其他地点。
+      for(const id of G.STARTING_PLACES)if(!s.unlockedPlaces.includes(id))s.unlockedPlaces.push(id);
     }
     s.activity=version>=5&&raw.activity?cleanActivity(raw.activity,s,version):null;
     if(s.activity){

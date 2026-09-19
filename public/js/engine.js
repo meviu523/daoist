@@ -71,7 +71,7 @@
       inventory: {...Object.fromEntries(G.ITEMS.filter(i=>!i.unique).map(i=>[i.id,0])),qi:1,heal:1,stamina:1}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
-      daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], unlockedFeatures: [], unlockedPlaces: ['home'], ending: null,
+      daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], unlockedFeatures: [], unlockedPlaces: [...G.STARTING_PLACES], ending: null,
       flags: {firstOrder:false}, recentEvents: [], pending: null, orders: [], logs: [], lastRoute: null,
       location: null, activity: null, activeOrder: null, orderRefreshAt: 495, revision: 0
     };
