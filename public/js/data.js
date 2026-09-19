@@ -175,12 +175,23 @@
         ['下一张拍什么','天快亮时，苏砚把相机递给你。「总拍城市，我也想留一张自己的照片。」',c('替她拍一张认真看镜头的照片','她第一次没有躲在取景器后面。',{affinity:9,trust:8},{path:'friend'}),c('说想和她一起出现在照片里','定时快门亮起时，她悄悄靠近了一点。',{affinity:12,trust:7},{path:'romance',minTrust:12}),c('拍下河面和刚亮的天','你们约好以后每年都来拍同一个清晨。',{affinity:8,trust:8,karma:2},{path:'friend'})]
       ] }
   ];
+  G.ALCHEMY_MATERIALS = [
+    {id:'herb',name:'青灵草',price:15,cost:2,realm:0,desc:'最常见的温和药材，适合入门丹方，也能用于人情往来。',glyph:'草'},
+    {id:'dewleaf',name:'凝露叶',price:24,cost:3,realm:0,desc:'叶脉能锁住清晨灵露，常用于清心、凝气类丹方。',glyph:'露'},
+    {id:'sunblossom',name:'赤阳花',price:38,cost:5,realm:1,desc:'花性温烈，炼气后方能稳定处理，适合温养气血与破境。',glyph:'阳'},
+    {id:'mooncap',name:'月华芝',price:56,cost:6,realm:1,desc:'夜色中药性更显，常与恢复灵力、破境类丹方配伍。',glyph:'月'},
+    {id:'earthroot',name:'地脉参',price:85,cost:8,realm:2,desc:'扎根地脉的稀有药材，筑基后才能承受其厚重药性。',glyph:'参'}
+  ];
   G.ITEMS = [
     {id:'qi',name:'凝气丹',type:'pill',cost:5,desc:'服用后修为 +35。',effect:{qi:35},glyph:'丹'},
     {id:'heal',name:'回春丹',type:'pill',cost:4,desc:'气血恢复 40。',effect:{health:40},glyph:'药'},
     {id:'stamina',name:'清心散',type:'pill',cost:4,desc:'体力恢复 35。',effect:{stamina:35},glyph:'散'},
+    {id:'spiritpill',name:'回灵丹',type:'pill',cost:0,shop:false,desc:'炼药专属丹药，灵力恢复 55。',effect:{mana:55},glyph:'灵'},
+    {id:'bodypill',name:'锻体丹',type:'pill',cost:0,shop:false,desc:'炼药专属丹药，气血 +25、体力 +25。',effect:{health:25,stamina:25},glyph:'体'},
+    {id:'greatqi',name:'聚元丹',type:'pill',cost:0,shop:false,desc:'炼药专属丹药，服用后修为 +90。',effect:{qi:90},glyph:'元'},
+    {id:'marrowpill',name:'玉髓丹',type:'pill',cost:0,shop:false,desc:'高阶炼药专属丹药，气血 +60、体力 +40。',effect:{health:60,stamina:40},glyph:'髓'},
     {id:'mana',name:'灵石',type:'pill',cost:3,desc:'灵力恢复 30。',effect:{mana:30},glyph:'石'},
-    {id:'herb',name:'青灵草',type:'material',cost:2,desc:'炼药材料，也可用来帮助朋友。',glyph:'草'},
+    ...G.ALCHEMY_MATERIALS.map(m=>({id:m.id,name:m.name,type:'material',cost:m.cost,unlockRealm:m.realm,desc:m.desc,glyph:m.glyph})),
     {id:'fragment',name:'阵心碎玉',type:'material',cost:8,desc:'收集三枚，才有机会重新点亮护城阵。',glyph:'玉'},
     {id:'charm',name:'护身符',type:'material',cost:8,desc:'突破失败时自动消耗，免除气血损失。',glyph:'符'},
     {id:'foundation',name:'破境丹',type:'material',cost:16,desc:'突破时可选择消耗，成功率 +15%。',glyph:'境'},
@@ -193,16 +204,22 @@
     { level:0, name:'无药鼎', cost:0, success:0, extra:0, realm:0, desc:'需要先在长乐集购买药鼎，才能开始炼药。' },
     { level:1, name:'青铜药鼎', cost:160, success:0, extra:.04, realm:0, desc:'入门药鼎。能稳定聚拢药性，开启炼药师道路。' },
     { level:2, name:'赤铜温灵鼎', cost:320, success:.06, extra:.10, realm:1, desc:'炉温更稳，成丹率提高，并更容易一炉得双药。' },
-    { level:3, name:'玄铁聚火鼎', cost:620, success:.12, extra:.18, realm:2, desc:'聚火锁灵，显著提高高阶丹药的稳定性与额外产出。' }
+    { level:3, name:'玄铁聚火鼎', cost:620, success:.12, extra:.18, realm:2, desc:'聚火锁灵，显著提高高阶丹药的稳定性与额外产出。' },
+    { level:4, name:'紫砂养神鼎', cost:1100, success:.18, extra:.28, realm:3, desc:'金丹修士常用的温养之鼎，处理复合药性时更稳定。' },
+    { level:5, name:'星纹乾坤鼎', cost:1800, success:.23, extra:.40, realm:4, desc:'星纹引火、内蕴乾坤，是当前可得的最高阶药鼎。' }
   ];
   G.ALCHEMY_RANKS = [
-    { name:'药童', need:0 }, { name:'识药', need:4 }, { name:'掌火', need:10 }, { name:'炼药师', need:20 }, { name:'丹师', need:40 }
+    { name:'药童', need:0 }, { name:'识药', need:4 }, { name:'掌火', need:10 }, { name:'炼药师', need:20 }, { name:'丹师', need:40 }, { name:'丹道宗师', need:70 }
   ];
   G.ALCHEMY_RECIPES = [
-    { id:'heal', name:'回春丹', herbs:1, mana:8, duration:20, base:.72, need:0, realm:0, desc:'恢复气血的基础丹药。' },
-    { id:'stamina', name:'清心散', herbs:1, mana:7, duration:18, base:.75, need:2, realm:0, desc:'调息解乏，恢复体力。' },
-    { id:'qi', name:'凝气丹', herbs:2, mana:10, duration:25, base:.68, need:5, realm:0, desc:'凝聚灵气，服用后增长修为。' },
-    { id:'foundation', name:'破境丹', herbs:4, mana:20, duration:40, base:.58, need:16, realm:1, desc:'熟练炼药师才能尝试的破境丹。' }
+    { id:'heal', name:'回春丹', materials:{herb:1}, mana:8, duration:20, base:.72, need:0, realm:0, desc:'以青灵草温养气血，是最基础的入门丹方。' },
+    { id:'stamina', name:'清心散', materials:{herb:1,dewleaf:1}, mana:8, duration:18, base:.74, need:2, realm:0, desc:'青灵草配凝露叶，调息解乏，恢复体力。' },
+    { id:'qi', name:'凝气丹', materials:{herb:1,dewleaf:1}, mana:11, duration:25, base:.68, need:5, realm:0, desc:'将温和药性收束为一缕灵气，服用后增长修为。' },
+    { id:'spiritpill', name:'回灵丹', materials:{dewleaf:2,mooncap:1}, mana:14, duration:28, base:.66, need:10, realm:1, desc:'凝露与月华相合，快速补充消耗的灵力。' },
+    { id:'foundation', name:'破境丹', materials:{herb:2,sunblossom:1,mooncap:1}, mana:20, duration:40, base:.58, need:16, realm:1, desc:'调和阴阳药性，突破时服用可提高成功率。' },
+    { id:'bodypill', name:'锻体丹', materials:{sunblossom:2,dewleaf:1}, mana:18, duration:32, base:.62, need:20, realm:1, desc:'以赤阳花锻体，再用凝露叶缓和烈性，恢复气血与体力。' },
+    { id:'greatqi', name:'聚元丹', materials:{sunblossom:1,mooncap:1,earthroot:1}, mana:26, duration:38, base:.56, need:32, realm:2, desc:'三种不同药性归于一炉，成丹后可大幅增长修为。' },
+    { id:'marrowpill', name:'玉髓丹', materials:{dewleaf:1,mooncap:2,earthroot:2}, mana:34, duration:46, base:.50, need:50, realm:3, desc:'高阶复方丹药，药力厚重，可同时补益气血与体力。' }
   ];
   G.QUESTS = [
     {id:'q1',title:'第一份人间烟火',desc:'完成 1 单配送',delivery:1,realm:0,reward:{coins:5,qi:15},story:'系统不是凭空赐予力量。它把你送达的每一份善意，折成可以带走的光。'},
