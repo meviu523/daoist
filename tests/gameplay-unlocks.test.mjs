@@ -68,7 +68,7 @@ test('首次吐纳途中、中断和途中读档不开放进阶；完成才开�
   s=settle(finish(act(s,'cultivate',{kind:'breath'})));
   assert.equal(s.stats.trained,1);assert.ok(s.unlockedFeatures.includes('practice'));
   assert.ok(G.perform(s,'cultivate',{kind:'meditate'}).ok);assert.ok(G.perform(s,'breakthrough').ok);
-  s.position='park';assert.ok(G.perform(s,'explore').ok);
+  s.position='park';assert.equal(G.perform(s,'explore').ok,false);s.unlockedPlaces.push('park');assert.ok(G.perform(s,'explore').ok);
 });
 test('三单主线待选时不开放炼药，真实新档可连续解锁到炼药',()=>{
   let s=afterClaim();s=deliver(s);
@@ -112,7 +112,7 @@ test('首次遇见任何 NPC 才开放羁绊，不提前暴露其余角色',()=>
   assert.deepEqual(G.visibleNPCs(a).map(n=>n.id),['chen']);assert.equal(G.perform(a,'visit',{id:'lin'}).ok,false);
 });
 for(const [id,n,action,p] of [['upgrades',5,'upgrade',{kind:'speed'}],['endings',20,'finale',{id:'ordinary'}]])test(`${id}在第 ${n} 单结算边界开放，既有费用/结局条件继续校验`,()=>{
-  let s=fresh();s.stats.delivered=n-1;s.position='garage';s.player.money=1000;
+  let s=fresh();s.stats.delivered=n-1;s.unlockedPlaces.push('garage');s.position='garage';s.player.money=1000;
   assert.equal(G.featureUnlocked(s,id),false);assert.equal(G.perform(s,action,p).ok,false);
   s.stats.delivered=n;assert.ok(G.featureUnlocked(s,id));assert.ok(G.perform(s,action,p).ok);
   if(id==='upgrades'){s.position='home';assert.equal(G.perform(s,action,p).ok,false);}
@@ -129,13 +129,13 @@ test('主线仅显示已领取与下一篇，直接构造后续领取不能绕�
   s=act(s,'claim',{id:'q1'});assert.deepEqual(G.visibleQuests(s).map(q=>q.id),['q1','q2']);
   s=act(s,'claim',{id:'q2'});assert.deepEqual(G.visibleQuests(s).map(q=>q.id),['q1','q2','q3']);
 });
-test('开局低资源仍可休息、切换步行、充电、维修、用药、搬家与睡眠',()=>{
+test('开局低资源可基础自救；维修搬家还需地点解锁',()=>{
   let s=fresh();s.player.stamina=10;s.player.health=30;s.vehicle.battery=0;
   assert.ok(G.perform(s,'rest').ok);assert.ok(G.perform(s,'use',{id:'heal'}).ok);
   assert.ok(G.perform(s,'transport',{mode:'walk'}).ok);assert.ok(G.perform(s,'charge').ok);
-  s.position='garage';s.vehicle.durability=50;assert.ok(G.perform(s,'repair').ok);
+  s.position='garage';s.vehicle.durability=50;assert.equal(G.perform(s,'repair').ok,false);s.unlockedPlaces.push('garage');assert.ok(G.perform(s,'repair').ok);
   s.position='home';s.player.stamina=100;s.transport='walk';assert.ok(G.perform(s,'sleep').ok);
-  assert.ok(G.perform(s,'moveHome',{id:'qiyun'}).ok);
+  assert.equal(G.perform(s,'moveHome',{id:'qiyun'}).ok,false);s.unlockedPlaces.push('stop-3');assert.ok(G.perform(s,'moveHome',{id:'qiyun'}).ok);
   s.player.money=0;assert.ok(G.perform(s,'rest').ok);assert.ok(G.perform(s,'transport',{mode:'walk'}).ok);
 });
 test('属性、物品与大境界本身不能替代新档里程碑',()=>{
@@ -168,7 +168,7 @@ test('v9无经历新档不全开；旧修行、药鼎丹方与改装按证据恢
   assert.ok(!a.unlockedFeatures.includes('endings'));assert.ok(!a.unlockedFeatures.includes('bonds'));
 });
 test('v9炼药途中迁移保持已付材料与进度，恢复相关入口不重复结算',()=>{
-  let s=fresh();s.unlockedFeatures=['alchemy'];G.syncFeatureUnlocks(s,true);s.position='market';s.player.money=1000;
+  let s=fresh();s.unlockedFeatures=['alchemy'];G.syncFeatureUnlocks(s,true);s.unlockedPlaces.push('market');s.position='market';s.player.money=1000;
   s=act(s,'cauldron',{id:1});s.alchemy.formulas=['heal'];const recipe=G.alchemyRecipe('heal');
   for(const [id,n] of Object.entries(recipe.materials))s.inventory[id]=n;
   s=G.advance(act(s,'alchemy',{recipe:'heal'}),5);s.schemaVersion=9;delete s.unlockedFeatures;
@@ -189,7 +189,7 @@ test('v9存储键显式迁移；新键空列表不会复活旧档；多存档所
   mem.setItem(G.STORAGE_KEY,JSON.stringify({schemaVersion:10,saves:[]}));assert.deepEqual(G.createStore(mem).load(),[]);
 });
 test('三种丹方渠道和获得条件不受入口解锁影响，隐藏方仍不能直接开炉',()=>{
-  const s=afterClaim();s.unlockedFeatures.push('alchemy');s.position='market';
+  const s=afterClaim();s.unlockedFeatures.push('alchemy');s.unlockedPlaces.push('market');s.position='market';
   const candidates=G.formulaMarketCandidates(s);assert.ok(candidates.every(r=>r.acquisition.type==='shop'));
   const recipe=G.ALCHEMY_RECIPES.find(r=>!s.alchemy.formulas.includes(r.id));const r=G.perform(s,'alchemy',{recipe:recipe.id});
   assert.equal(r.ok,false);assert.match(r.error,/尚未获得丹方/);assert.ok(!r.error.includes(recipe.name));

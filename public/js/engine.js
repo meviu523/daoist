@@ -32,6 +32,30 @@
   };
   G.limits = s => {const rank=G.realmRank(s);return {health:100+Math.floor(rank*12/9)+(s.equipment.includes('robe')?25:0),stamina:100+Math.floor(rank*8/9),mana:60+Math.floor(rank*16/9)+(s.equipment.includes('jade')?30:0),battery:80+s.vehicle.levels.battery*35,durability:100+s.vehicle.levels.durability*30};};
   G.log = (s, text, tag = '日常') => { s.logs.push({ id: `${s.turn}-${s.logs.length}-${s.seed}`, at: s.minutes, tag, text: String(text).slice(0, 600) }); s.logs = s.logs.slice(-180); };
+  // 地点所有权只由已结算配送授予；地图呈现与所有快捷入口共用查询。
+  G.placeUnlocked = (s,id) => !!G.place(id) && Array.isArray(s.unlockedPlaces) && s.unlockedPlaces.includes(id);
+  G.visibleServicePlaces = s => G.PLACES.filter(p=>p.permanent&&G.placeUnlocked(s,p.id));
+  G.visibleResidences = s => G.RESIDENCES.filter(h=>G.placeUnlocked(s,h.place));
+  G.locationBlock = (s,action,payload={}) => {
+    let target;
+    if(action==='travel') {
+      target=payload.target;
+      // 已接单可以暂停、改道再续送，但接单或单纯抵达本身不授予地点。
+      if(s.activeOrder?.target===target)return '';
+    } else if(action==='moveHome')target=G.residence(payload.id)?.place;
+    else if(action==='visit')target=G.NPCS.find(n=>n.id===payload.id)?.place;
+    else if(['repair','upgrade'].includes(action))target='garage';
+    else if(action==='heal')target='clinic';
+    else if(['meal','cauldron','formula','herb','material','auctionCatalog','auctionBid'].includes(action))target='market';
+    else if(action==='explore')target=s.position;
+    return G.place(target)&&!G.placeUnlocked(s,target)?`尚未解锁${G.place(target).name}，请先完成送往这里的外卖。`:'';
+  };
+  G.unlockDeliveryPlace = (s,id) => {
+    const p=G.place(id);
+    if(!p||s.gameOver||G.placeUnlocked(s,id))return;
+    s.unlockedPlaces.push(id);
+    G.log(s,`外卖送达，解锁地点「${p.name}」。${p.permanent?'已加入地图，可在满足玩法条件后使用当地服务。':'已记入行旅；普通配送点仍仅随订单出现。'}`,'地点');
+  };
   G.newGame = (name, mode = 'classic', seed = Date.now()) => {
     name = String(name).trim();
     if (!name || [...name].length > 16) throw new RuleError('名字需要 1–16 个字符。');
@@ -47,7 +71,7 @@
       inventory: {...Object.fromEntries(G.ITEMS.filter(i=>!i.unique).map(i=>[i.id,0])),qi:1,heal:1,stamina:1}, learned: [], equipment: [],
       stats: {delivered:0,earned:0,distance:0,trained:0,explored:0},
       bonds: Object.fromEntries(G.NPCS.map(n => [n.id, {met:false,affinity:0,trust:0,stage:0,path:'none',lastTalkDay:0}])),
-      daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], unlockedFeatures: [], ending: null,
+      daily: { day:1, delivered:0, claimed:false, signedDay:0, streak:0 }, claimed: [], unlockedEndings: [], unlockedFeatures: [], unlockedPlaces: ['home'], ending: null,
       flags: {firstOrder:false}, recentEvents: [], pending: null, orders: [], logs: [], lastRoute: null,
       location: null, activity: null, activeOrder: null, orderRefreshAt: 495, revision: 0
     };
@@ -434,7 +458,10 @@
     pool.sort((a,b)=>distances.get(a.id)-distances.get(b.id));
     const count=G.isNight(s)?4:6;
     while(s.orders.length<count&&pool.length){
-      const i=s.orders.length,idx=int(s,0,i<2?Math.min(7,pool.length-1):pool.length-1),place=pool.splice(idx,1)[0];
+      // 保留前两个近单位；从第三位起保底一个未知服务地点，已有发现单（含在途单）时不重复占位。
+      const discovering=[...s.orders,s.activeOrder].some(o=>o&&G.place(o.target)?.permanent&&!G.placeUnlocked(s,o.target));
+      const discoveryIndex=discovering||s.orders.length<2?-1:pool.findIndex(p=>p.permanent&&!G.placeUnlocked(s,p.id));
+      const i=s.orders.length,idx=discoveryIndex>=0?discoveryIndex:int(s,0,i<2?Math.min(7,pool.length-1):pool.length-1),place=pool.splice(idx,1)[0];
       const available=G.ORDER_TYPES.filter(t=>(t.condition!=='night'||G.isNight(s))&&(t.condition!=='mystic'||s.player.realm>=1));
       const type=available[int(s,0,available.length-1)],plan=G.travelPlan(s,place.id);
       s.orders.push({id:`o-${s.turn}-${i}-${s.seed}`,target:place.id,title:type.title,desc:type.desc,condition:type.condition,
@@ -462,6 +489,7 @@
     s.player.rep=clamp(s.player.rep+1,-50,100);
     if(ticket.npc){const bond=s.bonds[ticket.npc];const npc=G.NPCS.find(n=>n.id===ticket.npc);if(!bond.met){bond.met=true;if(npc)G.log(s,`这一单让你第一次正式结识${npc.name}。对方已出现在「羁绊」中。`,'相逢');}bond.affinity=clamp(bond.affinity+3,0,100);}
     G.log(s, `送达「${ticket.title}」至${G.place(ticket.target).name}。现金 +¥${reward}，外卖币 +${coins}。`, '配送');
+    G.unlockDeliveryPlace(s,ticket.target);
   }
   G.breakChance = (s, pillTier=0) => clamp(53+s.player.insight*2+Math.max(0,s.player.karma)*.12+(G.isNight(s)?10:0)+G.breakthroughPillBonus(pillTier===true?1:pillTier)-s.player.realm*3-(G.realmLevel(s)-1)*1.25,35,95);
   G.upgradeCost = (s, kind) => 90 + (s.vehicle.levels[kind]||0)*85;
@@ -718,6 +746,7 @@
       must(!s.ending||action==='continue','请先选择继续游历，或返回开始页。');
       must(!s.activity||instantWhileBusy.has(action),'当前行动仍在进行，请先停止。');
       const featureError=G.featureBlock(s,action,payload);must(!featureError,featureError);
+      const locationError=G.locationBlock(s,action,payload);must(!locationError,locationError);
       switch(action){
         case 'stop':
           must(G.canStop(s),'当前行动不能中断。');

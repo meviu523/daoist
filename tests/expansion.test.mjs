@@ -6,7 +6,8 @@ import '../public/js/engine.js';
 import '../public/js/storage.js';
 import '../public/js/progression.js';
 const G=globalThis.NightCourier;
-const fresh=(seed=12345)=>G.newGame('扩城测试','classic',seed);
+// 路网与计时专项夹具明确开放地点；真实新档另测。
+const fresh=(seed=12345)=>Object.assign(G.newGame('扩城测试','classic',seed),{unlockedPlaces:G.PLACES.map(p=>p.id)});
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-6,`${a} != ${b}`);
 const start=(s,kind,params={})=>{const r=G.perform(s,kind,params);assert.ok(r.ok,r.error);return r.state;};
 const restore=s=>G.sanitizeSave(JSON.parse(JSON.stringify(s)));
