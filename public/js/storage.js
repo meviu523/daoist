@@ -139,7 +139,9 @@
     s.vehicle.battery=num(v.battery,cap.battery,0,cap.battery,false);s.vehicle.durability=num(v.durability,cap.durability,0,cap.durability,false);
     const ar=obj(raw.alchemy)?raw.alchemy:{};
     const oldCauldron=num(ar.cauldron,version<=5&&raw.activity?.kind==='alchemy'?1:0,0,version<8?3:G.CAULDRONS.length-1),cauldron=version<8?(G.LEGACY_CAULDRON_MAP[oldCauldron]??0):oldCauldron;
-    s.alchemy={cauldron,xp:num(ar.xp,0,0,999999),brews:num(ar.brews,0,0,999999),successes:num(ar.successes,0,0,999999)};
+    const ownedCauldrons=version<8?(cauldron?[cauldron]:[]):Array.isArray(ar.cauldrons)?[...new Set(ar.cauldrons.map(x=>num(x,0,0,G.CAULDRONS.length-1)).filter(Boolean))].sort((a,b)=>a-b):[];
+    if(cauldron&&!ownedCauldrons.includes(cauldron))ownedCauldrons.push(cauldron);
+    s.alchemy={cauldron,cauldrons:ownedCauldrons.sort((a,b)=>a-b),xp:num(ar.xp,0,0,999999),brews:num(ar.brews,0,0,999999),successes:num(ar.successes,0,0,999999)};
     if(s.alchemy.successes>s.alchemy.brews)s.alchemy.successes=s.alchemy.brews;
     for(const item of G.ITEMS.filter(i=>!i.unique))s.inventory[item.id]=num(raw.inventory?.[item.id],0,0,9999);
     for(const k of Object.keys(s.stats))s.stats[k]=num(raw.stats?.[k],0,0,k==='distance'?1e10:1e7,k!=='distance');
